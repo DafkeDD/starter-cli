@@ -5,6 +5,8 @@ import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
 import { addDeps } from "../utils/install.js";
 import { setupNextIntl, LOCALES, DEFAULT_LOCALE } from "./i18n.js";
+import { setupTheme } from "./theme.js";
+import { setupRules } from "./rules.js";
 import type { PackageManager } from "../types.js";
 
 /** Submap binnen het project waarin de frontend wordt geïnstalleerd. */
@@ -85,11 +87,13 @@ export async function scaffoldFrontend(
   );
 
   await withProgress(
-    "next-intl opzetten (i18n, 4 talen)",
+    "next-intl + light/dark mode opzetten",
     async () => {
-      // Bestanden eerst wegschrijven, daarna de package installeren.
+      // Bestanden eerst wegschrijven, daarna de packages installeren.
+      setupTheme(target);
       setupNextIntl(target);
-      await addDeps(pm, target, ["next-intl@latest"]);
+      setupRules(target);
+      await addDeps(pm, target, ["next-intl@latest", "react-icons@latest"]);
     },
     25000,
   );
@@ -103,6 +107,6 @@ export async function scaffoldFrontend(
   );
 
   p.log.success(
-    `Next.js + next-intl + Prettier aangemaakt in ./${FRONTEND_DIR} (talen: ${LOCALES.join(", ")}, standaard: ${DEFAULT_LOCALE}).`,
+    `Next.js + next-intl + light/dark + Prettier aangemaakt in ./${FRONTEND_DIR} (talen: ${LOCALES.join(", ")}, standaard: ${DEFAULT_LOCALE}).`,
   );
 }

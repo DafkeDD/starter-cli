@@ -5,7 +5,22 @@ Interactieve CLI die op basis van vragen een project scaffold in de **huidige ma
 Op dit moment is er één vraag: welke frontend. De enige optie is **Next.js**
 (altijd de laatste versie, via `create-next-app@latest`), die geïnstalleerd
 wordt in een submap `frontend/`, inclusief TypeScript, Tailwind CSS, ESLint,
-**next-intl** en **Prettier** met de projectinstellingen.
+**next-intl**, **light/dark mode** en **Prettier** met de projectinstellingen.
+
+## Harde regels
+
+Deze drie liggen vast en zijn geen vraag in de CLI:
+
+1. **next-intl, altijd** — 4 talen, standaard Engels.
+2. **UI-componenten worden altijd zelf gebouwd** — niets uit shadcn/ui, Radix,
+   MUI, Chakra of welke component library dan ook. Iconen uitsluitend uit
+   `react-icons`.
+3. **Light/dark mode, altijd** — class-based, voorkeur in een cookie, met een
+   toggle in de UI.
+
+Ze worden ook in het gegenereerde project vastgelegd, in `PROJECT-RULES.md` en
+als `project-rules`-blok in `AGENTS.md` (die Claude Code automatisch meeleest
+via `CLAUDE.md` → `@AGENTS.md`).
 
 ### i18n — harde regel
 
@@ -29,11 +44,24 @@ Wat er wordt aangemaakt:
   4 de talen rendert
 - `src/components/LocaleSwitcher.tsx` — knoppen om live van taal te wisselen
 - `messages/en.json`, `de.json`, `nl.json`, `fr.json`
-- `I18N.md` + een `i18n-rules`-blok in `AGENTS.md`, zodat de regel ook voor
-  Claude Code / andere agents vastligt
 
 De talen wijzig je op één plek: `LOCALES` en `DEFAULT_LOCALE` bovenaan
 `src/steps/i18n.ts`.
+
+### Light/dark mode
+
+Class-based dark mode (Tailwind 4 `@custom-variant`), met design tokens in
+`globals.css` en de voorkeur in de `theme`-cookie — nooit localStorage. Een
+klein inline script zet de class vóór de eerste paint, dus geen witte flits.
+
+- `src/app/globals.css` — tokens voor light en dark + `@theme inline`-mapping
+- `src/components/theme/ThemeProvider.tsx` — `useTheme()`, `setTheme()`, `cycleTheme()`
+- `src/components/theme/ThemeToggle.tsx` — knop die wisselt tussen
+  light → dark → system, met `react-icons` en vertaalde labels
+
+Gebruik in componenten altijd de tokens (`bg-background`, `text-foreground`,
+`bg-card`, `border-border`, `text-muted-foreground`, `bg-primary`, ...) en nooit
+`bg-white` / `text-black`, anders breekt dark mode.
 
 ### Prettier
 
@@ -107,7 +135,9 @@ starter-cli/
    ├─ types.ts
    ├─ steps/
    │  ├─ frontend.ts     # vraag 1 + scaffold van Next.js
-   │  └─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
+   │  ├─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
+   │  ├─ theme.ts        # light/dark mode + design tokens
+   │  └─ rules.ts        # PROJECT-RULES.md + AGENTS.md-blok
    └─ utils/
       ├─ exec.ts         # commando's draaien (Windows-proof)
       ├─ install.ts      # (dev)dependencies toevoegen

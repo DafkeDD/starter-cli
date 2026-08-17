@@ -44,6 +44,8 @@ async function main(): Promise<void> {
       `${pc.dim("i18n    ")}  ${pc.cyan(`next-intl (${LOCALES.join(", ")})`)}${pc.dim(
         `  standaard: ${DEFAULT_LOCALE}`,
       )}`,
+      `${pc.dim("Thema   ")}  ${pc.cyan("light / dark / system")}${pc.dim("  cookie-based, geen flits")}`,
+      `${pc.dim("UI      ")}  ${pc.cyan("zelfgebouwde componenten")}${pc.dim("  geen shadcn/ui of andere library")}`,
       `${pc.dim("Manager ")}  ${pc.cyan(PACKAGE_MANAGER)}`,
     ].join("\n"),
     "Overzicht",

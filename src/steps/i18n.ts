@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { NO_FLASH_SCRIPT } from "./theme.js";
 
 /**
  * HARDE REGEL: elke gegenereerde frontend gebruikt next-intl, ALTIJD, met
@@ -24,6 +25,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
     description:
       "This page is fully translated. Pick a language below — the text changes without a full page reload.",
     currentLanguage: "Current language",
+    appearance: "Appearance",
     activeLocale: "Active locale: {locale}",
     hint: "Translations live in the messages folder: en.json, de.json, nl.json, fr.json. Never hard-code visible text.",
   },
@@ -32,6 +34,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
     description:
       "Diese Seite ist vollständig übersetzt. Wähle unten eine Sprache — der Text ändert sich ohne kompletten Seitenneuaufbau.",
     currentLanguage: "Aktuelle Sprache",
+    appearance: "Darstellung",
     activeLocale: "Aktives Locale: {locale}",
     hint: "Übersetzungen liegen im messages-Ordner: en.json, de.json, nl.json, fr.json. Sichtbaren Text nie hart codieren.",
   },
@@ -40,6 +43,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
     description:
       "Deze pagina is volledig vertaald. Kies hieronder een taal — de tekst verandert zonder volledige herlaadbeurt.",
     currentLanguage: "Huidige taal",
+    appearance: "Weergave",
     activeLocale: "Actieve locale: {locale}",
     hint: "Vertalingen staan in de map messages: en.json, de.json, nl.json, fr.json. Zichtbare tekst nooit hard coderen.",
   },
@@ -48,6 +52,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
     description:
       "Cette page est entièrement traduite. Choisissez une langue ci-dessous — le texte change sans rechargement complet.",
     currentLanguage: "Langue actuelle",
+    appearance: "Apparence",
     activeLocale: "Locale active : {locale}",
     hint: "Les traductions se trouvent dans le dossier messages : en.json, de.json, nl.json, fr.json. Ne jamais coder en dur le texte visible.",
   },
@@ -58,6 +63,14 @@ const SWITCHER_LABEL: Record<string, string> = {
   de: "Sprache",
   nl: "Taal",
   fr: "Langue",
+};
+
+/** Vertalingen voor de theme-toggle. */
+const THEME_MESSAGES: Record<string, Record<string, string>> = {
+  en: { toggle: "Switch theme", light: "Light", dark: "Dark", system: "System" },
+  de: { toggle: "Theme wechseln", light: "Hell", dark: "Dunkel", system: "System" },
+  nl: { toggle: "Thema wisselen", light: "Licht", dark: "Donker", system: "Systeem" },
+  fr: { toggle: "Changer de thème", light: "Clair", dark: "Sombre", system: "Système" },
 };
 
 function write(file: string, content: string): void {
@@ -168,11 +181,16 @@ export default withNextIntl(nextConfig)
     path.join(localeDir, "layout.tsx"),
     `import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { cookies } from 'next/headers'
 import { hasLocale, NextIntlClientProvider } from 'next-intl'
 import { setRequestLocale } from 'next-intl/server'
 import { notFound } from 'next/navigation'
 import { routing } from '@/i18n/routing'
+import { ThemeProvider, type Theme } from '@/components/theme/ThemeProvider'
 import '../globals.css'
+
+// Zet de dark-class vóór de eerste paint, zodat er geen witte flits is.
+const themeScript = \`${NO_FLASH_SCRIPT}\`
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -210,10 +228,21 @@ export default async function RootLayout({
     // Locale beschikbaar maken voor server-side vertalingen.
     setRequestLocale(locale)
 
+    // Themavoorkeur uit de cookie (nooit localStorage).
+    const cookieStore = await cookies()
+    const cookieTheme = cookieStore.get('theme')?.value
+    const initialTheme: Theme =
+        cookieTheme === 'light' || cookieTheme === 'dark' || cookieTheme === 'system' ? cookieTheme : 'system'
+
     return (
-        <html lang={locale} suppressHydrationWarning>
+        <html lang={locale} className={initialTheme === 'dark' ? 'dark' : undefined} suppressHydrationWarning>
+            <head>
+                <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+            </head>
             <body className={\`\${geistSans.variable} \${geistMono.variable} antialiased\`}>
-                <NextIntlClientProvider>{children}</NextIntlClientProvider>
+                <NextIntlClientProvider>
+                    <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>
+                </NextIntlClientProvider>
             </body>
         </html>
     )
@@ -226,6 +255,7 @@ export default async function RootLayout({
     path.join(localeDir, "page.tsx"),
     `import { getLocale, getTranslations } from 'next-intl/server'
 import LocaleSwitcher from '@/components/LocaleSwitcher'
+import ThemeToggle from '@/components/theme/ThemeToggle'
 
 export default async function Home() {
     const t = await getTranslations('HomePage')
@@ -233,19 +263,28 @@ export default async function Home() {
 
     return (
         <main className='flex min-h-screen flex-col items-center justify-center gap-8 p-8'>
-            <div className='w-full max-w-xl rounded-xl border border-black/10 p-8 text-center dark:border-white/15'>
+            <div className='border-border bg-card text-card-foreground w-full max-w-xl rounded-xl border p-8 text-center'>
                 <h1 className='text-3xl font-semibold tracking-tight'>{t('title')}</h1>
-                <p className='mt-3 text-sm leading-relaxed opacity-70'>{t('description')}</p>
+                <p className='text-muted-foreground mt-3 text-sm leading-relaxed'>{t('description')}</p>
 
                 <div className='mt-8'>
-                    <p className='mb-3 text-xs font-medium tracking-wide uppercase opacity-50'>
+                    <p className='text-muted-foreground mb-3 text-xs font-medium tracking-wide uppercase'>
                         {t('currentLanguage')}
                     </p>
                     <LocaleSwitcher />
                 </div>
 
-                <p className='mt-8 font-mono text-xs opacity-50'>{t('activeLocale', { locale })}</p>
-                <p className='mt-2 text-xs opacity-50'>{t('hint')}</p>
+                <div className='mt-8'>
+                    <p className='text-muted-foreground mb-3 text-xs font-medium tracking-wide uppercase'>
+                        {t('appearance')}
+                    </p>
+                    <div className='flex justify-center'>
+                        <ThemeToggle />
+                    </div>
+                </div>
+
+                <p className='text-muted-foreground mt-8 font-mono text-xs'>{t('activeLocale', { locale })}</p>
+                <p className='text-muted-foreground mt-2 text-xs'>{t('hint')}</p>
             </div>
         </main>
     )
@@ -298,11 +337,11 @@ export default function LocaleSwitcher() {
                     className={
                         'rounded-md border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ' +
                         (l.code === locale
-                            ? 'border-foreground bg-foreground text-background font-medium'
-                            : 'border-black/15 hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10')
+                            ? 'border-primary bg-primary text-primary-foreground font-medium'
+                            : 'border-border hover:bg-muted')
                     }
                 >
-                    <span className='mr-1.5 text-xs opacity-60'>{l.short}</span>
+                    <span className='mr-1.5 text-xs opacity-70'>{l.short}</span>
                     {l.label}
                 </button>
             ))}
@@ -317,6 +356,7 @@ export default function LocaleSwitcher() {
     const content = {
       HomePage: MESSAGES[locale],
       LocaleSwitcher: { label: SWITCHER_LABEL[locale] },
+      Theme: THEME_MESSAGES[locale],
     };
     write(
       path.join(target, "messages", `${locale}.json`),
@@ -324,87 +364,4 @@ export default function LocaleSwitcher() {
     );
   }
 
-  // ---- Harde regel vastleggen voor het project ---------------------------
-  const rulesBlock = `
-<!-- BEGIN:i18n-rules -->
-
-# i18n — harde regel (niet verwijderen)
-
-Deze frontend gebruikt **altijd** \`next-intl\`, in ${LOCALES.length} talen:
-${LOCALES.map((l) => `\`${l}\``).join(", ")}. Standaardtaal is \`${DEFAULT_LOCALE}\`.
-
-- Zichtbare tekst wordt **nooit** hard gecodeerd — altijd \`useTranslations()\`
-  (client) of \`getTranslations()\` (server).
-- Elke nieuwe key wordt toegevoegd in **alle** bestanden onder \`messages/\`.
-- Nieuwe pagina's komen onder \`src/app/[locale]/\`, nooit direct onder \`src/app/\`.
-- Interne navigatie gaat via \`@/i18n/navigation\`, niet via \`next/link\` of
-  \`next/navigation\`.
-
-Volledige uitleg: zie \`I18N.md\`.
-
-<!-- END:i18n-rules -->
-`;
-
-  const agentsFile = path.join(target, "AGENTS.md");
-  const existingAgents = fs.existsSync(agentsFile) ? fs.readFileSync(agentsFile, "utf8") : "";
-  if (!existingAgents.includes("<!-- BEGIN:i18n-rules -->")) {
-    write(agentsFile, existingAgents.trimEnd() + "\n" + rulesBlock);
-  }
-
-  write(
-    path.join(target, "I18N.md"),
-    `# i18n — harde regel
-
-Deze frontend gebruikt **altijd** \`next-intl\`. Dit is geen keuze en wordt niet uitgezet.
-
-## Vaste instellingen
-
-| | |
-|---|---|
-| Talen | ${LOCALES.map((l) => `\`${l}\` (${LOCALE_LABELS[l].label})`).join(", ")} |
-| Standaardtaal | \`${DEFAULT_LOCALE}\` (Engels) |
-| URL-prefix | \`never\` — de taal staat niet in de URL, maar in een cookie |
-| Vertalingen | \`messages/<locale>.json\` |
-| Routing | \`src/app/[locale]/...\` |
-
-## Regels
-
-1. **Geen enkele zichtbare tekst wordt hard gecodeerd.** Alle tekst die een
-   gebruiker ziet, komt uit \`useTranslations()\` (client) of
-   \`getTranslations()\` (server).
-2. **Elke nieuwe key wordt in alle ${LOCALES.length} bestanden toegevoegd**
-   (${LOCALES.map((l) => `\`messages/${l}.json\``).join(", ")}). Een key die in
-   één taal ontbreekt, is een bug.
-3. **Nieuwe pagina's komen onder \`src/app/[locale]/\`.** Nooit rechtstreeks
-   onder \`src/app/\`, want dan mist de locale-context.
-4. **Navigatie gebruikt \`@/i18n/navigation\`** (\`Link\`, \`useRouter\`,
-   \`redirect\`, \`usePathname\`) — nooit \`next/link\` of \`next/navigation\`
-   voor interne links.
-5. **Talen toevoegen of wijzigen** doe je in \`src/i18n/routing.ts\` én in
-   \`messages/\`. Nergens anders.
-
-## Voorbeeld
-
-\`\`\`tsx
-// Server component
-import { getTranslations } from 'next-intl/server'
-
-export default async function Page() {
-    const t = await getTranslations('HomePage')
-    return <h1>{t('title')}</h1>
-}
-\`\`\`
-
-\`\`\`tsx
-// Client component
-'use client'
-import { useTranslations } from 'next-intl'
-
-export default function Widget() {
-    const t = useTranslations('HomePage')
-    return <p>{t('description')}</p>
-}
-\`\`\`
-`,
-  );
 }
