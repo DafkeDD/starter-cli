@@ -167,7 +167,34 @@ export const config = {
     `import type { NextConfig } from 'next'
 import createNextIntlPlugin from 'next-intl/plugin'
 
-const nextConfig: NextConfig = {}
+/** Zelfde lijst als in src/i18n/routing.ts. */
+const LOCALES = [${localeList}]
+
+const nextConfig: NextConfig = {
+    /**
+     * Vangnet: de taal hoort NOOIT in de URL te staan.
+     *
+     * next-intl doet dit normaal al via src/proxy.ts (localePrefix: 'never'),
+     * maar deze redirects draaien vóór de middleware en garanderen het ook als
+     * de proxy om welke reden dan ook niet meedraait.
+     *   /nl      -> /
+     *   /nl/iets -> /iets
+     */
+    async redirects() {
+        return [
+            ...LOCALES.map(locale => ({
+                source: \`/\${locale}\`,
+                destination: '/',
+                permanent: false
+            })),
+            ...LOCALES.map(locale => ({
+                source: \`/\${locale}/:path*\`,
+                destination: '/:path*',
+                permanent: false
+            }))
+        ]
+    }
+}
 
 const withNextIntl = createNextIntlPlugin()
 
@@ -304,7 +331,7 @@ export default async function Home() {
 
 import { useTransition } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { usePathname, useRouter } from '@/i18n/navigation'
+import { useRouter } from '@/i18n/navigation'
 
 const LOCALES = [
 ${localeButtons}
@@ -314,15 +341,19 @@ export default function LocaleSwitcher() {
     const t = useTranslations('LocaleSwitcher')
     const locale = useLocale()
     const router = useRouter()
-    const pathname = usePathname()
     const [isPending, startTransition] = useTransition()
 
+    /**
+     * De taal staat NOOIT in de URL (localePrefix: 'never'), dus we navigeren
+     * niet. We zetten de locale-cookie en laten de server opnieuw renderen.
+     *
+     * Let op: router.replace(pathname, { locale }) doet dit wel via de URL en
+     * zet er dan alsnog /fr of /nl voor — daarom gebruiken we dat hier niet.
+     */
     function switchLocale(next: string) {
         if (next === locale) return
-        startTransition(() => {
-            router.replace(pathname, { locale: next })
-            router.refresh()
-        })
+        document.cookie = \`NEXT_LOCALE=\${next}; path=/; max-age=31536000; SameSite=Lax\`
+        startTransition(() => router.refresh())
     }
 
     return (
