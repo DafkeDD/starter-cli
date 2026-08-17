@@ -25,7 +25,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
       "This page is fully translated. Pick a language below — the text changes without a full page reload.",
     currentLanguage: "Current language",
     activeLocale: "Active locale: {locale}",
-    hint: "Translations live in messages/<locale>.json. Never hard-code visible text.",
+    hint: "Translations live in the messages folder: en.json, de.json, nl.json, fr.json. Never hard-code visible text.",
   },
   de: {
     title: "next-intl funktioniert",
@@ -33,7 +33,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
       "Diese Seite ist vollständig übersetzt. Wähle unten eine Sprache — der Text ändert sich ohne kompletten Seitenneuaufbau.",
     currentLanguage: "Aktuelle Sprache",
     activeLocale: "Aktives Locale: {locale}",
-    hint: "Übersetzungen liegen in messages/<locale>.json. Sichtbaren Text nie hart codieren.",
+    hint: "Übersetzungen liegen im messages-Ordner: en.json, de.json, nl.json, fr.json. Sichtbaren Text nie hart codieren.",
   },
   nl: {
     title: "next-intl werkt",
@@ -41,7 +41,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
       "Deze pagina is volledig vertaald. Kies hieronder een taal — de tekst verandert zonder volledige herlaadbeurt.",
     currentLanguage: "Huidige taal",
     activeLocale: "Actieve locale: {locale}",
-    hint: "Vertalingen staan in messages/<locale>.json. Zichtbare tekst nooit hard coderen.",
+    hint: "Vertalingen staan in de map messages: en.json, de.json, nl.json, fr.json. Zichtbare tekst nooit hard coderen.",
   },
   fr: {
     title: "next-intl fonctionne",
@@ -49,7 +49,7 @@ const MESSAGES: Record<string, Record<string, string>> = {
       "Cette page est entièrement traduite. Choisissez une langue ci-dessous — le texte change sans rechargement complet.",
     currentLanguage: "Langue actuelle",
     activeLocale: "Locale active : {locale}",
-    hint: "Les traductions se trouvent dans messages/<locale>.json. Ne jamais coder en dur le texte visible.",
+    hint: "Les traductions se trouvent dans le dossier messages : en.json, de.json, nl.json, fr.json. Ne jamais coder en dur le texte visible.",
   },
 };
 
