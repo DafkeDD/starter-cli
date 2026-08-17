@@ -2,6 +2,7 @@ import path from "node:path";
 import * as p from "@clack/prompts";
 import { runQuiet } from "../utils/exec.js";
 import { withProgress } from "../utils/progress.js";
+import { setupPrettier } from "../utils/prettier.js";
 import type { PackageManager } from "../types.js";
 
 /** Submap binnen het project waarin de frontend wordt geïnstalleerd. */
@@ -50,7 +51,7 @@ export async function scaffoldFrontend(
   }
 
   const target = path.join(projectDir, FRONTEND_DIR);
-  p.log.step(`Next.js opzetten in ./${FRONTEND_DIR} ...`);
+  p.log.step(`Next.js + Prettier opzetten in ./${FRONTEND_DIR} ...`);
 
   const pmFlag = pm === "pnpm" ? "--use-pnpm" : pm === "yarn" ? "--use-yarn" : "--use-npm";
 
@@ -79,5 +80,13 @@ export async function scaffoldFrontend(
     45000,
   );
 
-  p.log.success(`Next.js aangemaakt in ./${FRONTEND_DIR}.`);
+  await withProgress(
+    "Prettier + tailwind-plugin installeren",
+    async () => {
+      await setupPrettier(pm, target);
+    },
+    20000,
+  );
+
+  p.log.success(`Next.js + Prettier aangemaakt in ./${FRONTEND_DIR}.`);
 }

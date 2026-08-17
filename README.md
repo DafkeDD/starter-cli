@@ -4,7 +4,18 @@ Interactieve CLI die op basis van vragen een project scaffold in de **huidige ma
 
 Op dit moment is er één vraag: welke frontend. De enige optie is **Next.js**
 (altijd de laatste versie, via `create-next-app@latest`), die geïnstalleerd
-wordt in een submap `frontend/`.
+wordt in een submap `frontend/`, inclusief TypeScript, Tailwind CSS, ESLint en
+**Prettier** met de projectinstellingen.
+
+### Prettier
+
+De frontend krijgt automatisch een `.prettierrc` (single quotes, geen puntkomma's,
+tab width 4, print width 120, `prettier-plugin-tailwindcss` voor het sorteren van
+class-namen), een `.prettierignore`, en de scripts `format` en `format:check`.
+De gegenereerde code wordt meteen in die stijl geformatteerd.
+
+De config staat in `src/utils/prettier.ts` in de constante `PRETTIER_CONFIG` —
+pas die aan om je huisstijl te wijzigen.
 
 ---
 
@@ -70,6 +81,8 @@ starter-cli/
    │  └─ frontend.ts     # vraag 1 + scaffold van Next.js
    └─ utils/
       ├─ exec.ts         # commando's draaien (Windows-proof)
+      ├─ install.ts      # (dev)dependencies toevoegen
+      ├─ prettier.ts     # .prettierrc + plugin + formatteren
       └─ progress.ts     # progress-bar tijdens trage installs
 ```
 
