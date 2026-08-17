@@ -3,6 +3,8 @@ import * as p from "@clack/prompts";
 import { runQuiet } from "../utils/exec.js";
 import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
+import { addDeps } from "../utils/install.js";
+import { setupNextIntl, LOCALES, DEFAULT_LOCALE } from "./i18n.js";
 import type { PackageManager } from "../types.js";
 
 /** Submap binnen het project waarin de frontend wordt geïnstalleerd. */
@@ -21,7 +23,7 @@ export async function askFrontend(): Promise<Frontend> {
     options: [
       {
         value: "nextjs" as const,
-        label: "Next.js (laatste versie + TypeScript + Tailwind)",
+        label: `Next.js (laatste versie + TypeScript + Tailwind + next-intl: ${LOCALES.join("/")})`,
         hint: "aanbevolen",
       },
       { value: "none" as const, label: "Geen frontend" },
@@ -51,7 +53,9 @@ export async function scaffoldFrontend(
   }
 
   const target = path.join(projectDir, FRONTEND_DIR);
-  p.log.step(`Next.js + Prettier opzetten in ./${FRONTEND_DIR} ...`);
+  p.log.step(
+    `Next.js + next-intl (${LOCALES.join(", ")}, standaard ${DEFAULT_LOCALE}) + Prettier opzetten in ./${FRONTEND_DIR} ...`,
+  );
 
   const pmFlag = pm === "pnpm" ? "--use-pnpm" : pm === "yarn" ? "--use-yarn" : "--use-npm";
 
@@ -81,6 +85,16 @@ export async function scaffoldFrontend(
   );
 
   await withProgress(
+    "next-intl opzetten (i18n, 4 talen)",
+    async () => {
+      // Bestanden eerst wegschrijven, daarna de package installeren.
+      setupNextIntl(target);
+      await addDeps(pm, target, ["next-intl@latest"]);
+    },
+    25000,
+  );
+
+  await withProgress(
     "Prettier + tailwind-plugin installeren",
     async () => {
       await setupPrettier(pm, target);
@@ -88,5 +102,7 @@ export async function scaffoldFrontend(
     20000,
   );
 
-  p.log.success(`Next.js + Prettier aangemaakt in ./${FRONTEND_DIR}.`);
+  p.log.success(
+    `Next.js + next-intl + Prettier aangemaakt in ./${FRONTEND_DIR} (talen: ${LOCALES.join(", ")}, standaard: ${DEFAULT_LOCALE}).`,
+  );
 }

@@ -4,8 +4,36 @@ Interactieve CLI die op basis van vragen een project scaffold in de **huidige ma
 
 Op dit moment is er één vraag: welke frontend. De enige optie is **Next.js**
 (altijd de laatste versie, via `create-next-app@latest`), die geïnstalleerd
-wordt in een submap `frontend/`, inclusief TypeScript, Tailwind CSS, ESLint en
-**Prettier** met de projectinstellingen.
+wordt in een submap `frontend/`, inclusief TypeScript, Tailwind CSS, ESLint,
+**next-intl** en **Prettier** met de projectinstellingen.
+
+### i18n — harde regel
+
+Elke gegenereerde frontend gebruikt **altijd** `next-intl`. Dit is bewust geen
+vraag in de CLI en kan niet uitgezet worden.
+
+| | |
+|---|---|
+| Talen | `en`, `de`, `nl`, `fr` |
+| Standaardtaal | `en` (Engels) |
+| URL-prefix | `never` — taal staat in een cookie, niet in de URL |
+| Vertalingen | `messages/<locale>.json` |
+| Routing | `src/app/[locale]/...` |
+
+Wat er wordt aangemaakt:
+
+- `src/i18n/routing.ts`, `navigation.ts`, `request.ts`
+- `src/proxy.ts` (de Next.js 16-naam voor `middleware.ts`)
+- `next.config.ts` met `createNextIntlPlugin()`
+- `src/app/[locale]/layout.tsx` + `page.tsx` — een demo-pagina die in alle
+  4 de talen rendert
+- `src/components/LocaleSwitcher.tsx` — knoppen om live van taal te wisselen
+- `messages/en.json`, `de.json`, `nl.json`, `fr.json`
+- `I18N.md` + een `i18n-rules`-blok in `AGENTS.md`, zodat de regel ook voor
+  Claude Code / andere agents vastligt
+
+De talen wijzig je op één plek: `LOCALES` en `DEFAULT_LOCALE` bovenaan
+`src/steps/i18n.ts`.
 
 ### Prettier
 
@@ -78,7 +106,8 @@ starter-cli/
    ├─ index.ts           # flow: vragen -> overzicht -> bevestigen -> genereren
    ├─ types.ts
    ├─ steps/
-   │  └─ frontend.ts     # vraag 1 + scaffold van Next.js
+   │  ├─ frontend.ts     # vraag 1 + scaffold van Next.js
+   │  └─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
    └─ utils/
       ├─ exec.ts         # commando's draaien (Windows-proof)
       ├─ install.ts      # (dev)dependencies toevoegen

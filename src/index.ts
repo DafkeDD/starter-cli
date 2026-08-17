@@ -4,6 +4,7 @@ import path from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { askFrontend, scaffoldFrontend, FRONTEND_DIR } from "./steps/frontend.js";
+import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import type { PackageManager } from "./types.js";
 
 /** Package manager voor de gegenereerde projecten. */
@@ -40,6 +41,9 @@ async function main(): Promise<void> {
       `${pc.dim("Frontend")}  ${pc.cyan(frontend)}${
         frontend === "nextjs" ? pc.dim(`  -> ./${FRONTEND_DIR}`) : ""
       }`,
+      `${pc.dim("i18n    ")}  ${pc.cyan(`next-intl (${LOCALES.join(", ")})`)}${pc.dim(
+        `  standaard: ${DEFAULT_LOCALE}`,
+      )}`,
       `${pc.dim("Manager ")}  ${pc.cyan(PACKAGE_MANAGER)}`,
     ].join("\n"),
     "Overzicht",
