@@ -45,12 +45,6 @@ async function main(): Promise<void> {
     "Overzicht",
   );
 
-  const ok = await p.confirm({ message: "Doorgaan en genereren in deze map?" });
-  if (p.isCancel(ok) || !ok) {
-    p.cancel("Geannuleerd.");
-    process.exit(0);
-  }
-
   // ---- Genereren ----------------------------------------------------------
   await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER);
 
