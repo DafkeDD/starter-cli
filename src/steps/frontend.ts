@@ -78,6 +78,9 @@ export async function scaffoldFrontend(
           "--import-alias",
           "@/*",
           pmFlag,
+          // Geen eigen git-repo in ./frontend — dat zou een genest repo geven
+          // binnen het project, waardoor de frontend niet meecommit.
+          "--disable-git",
           "--yes",
         ],
         projectDir,
