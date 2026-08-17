@@ -166,9 +166,10 @@ Elke app heeft light én dark mode, met een toggle in de UI.
 | Provider | \`src/components/theme/ThemeProvider.tsx\` |
 | Toggle | \`src/components/theme/ThemeToggle.tsx\` |
 
-- De cookie wordt server-side gelezen in \`src/app/[locale]/layout.tsx\`, en een
-  klein inline script zet de class vóór de eerste paint. Zo is er geen witte
-  flits bij het laden.
+- De cookie wordt server-side gelezen in \`src/app/[locale]/layout.tsx\` en zet
+  daar meteen de class op \`<html>\`: \`dark\`, geen class (light), of
+  \`theme-system\` (CSS volgt dan \`prefers-color-scheme\`). Geen inline script,
+  geen flits.
 - **Gebruik altijd de design tokens** voor kleur: \`bg-background\`,
   \`text-foreground\`, \`bg-card\`, \`text-card-foreground\`, \`border-border\`,
   \`text-muted-foreground\`, \`bg-primary\`, \`text-primary-foreground\`,

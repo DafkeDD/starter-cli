@@ -3,8 +3,14 @@ import path from "node:path";
 
 /**
  * HARDE REGEL: elke gegenereerde frontend heeft light/dark mode.
+ *
  * Class-based dark mode (Tailwind 4 `@custom-variant`), voorkeur in een cookie
- * (nooit localStorage), en een no-flash script zodat er geen witte flits is.
+ * (nooit localStorage). De class wordt server-side gezet, dus er is geen flits
+ * en geen inline script nodig:
+ *   - cookie "dark"   -> <html class="dark">
+ *   - cookie "light"  -> <html> (geen class)
+ *   - cookie "system" -> <html class="theme-system">, CSS kijkt zelf naar
+ *                        prefers-color-scheme
  */
 
 function write(file: string, content: string): void {
@@ -12,13 +18,50 @@ function write(file: string, content: string): void {
   fs.writeFileSync(file, content, "utf8");
 }
 
+/** De dark-tokens, hergebruikt voor .dark én voor system + prefers-color-scheme. */
+const DARK_TOKENS = `    --background: 220 20% 8%;
+    --foreground: 160 10% 95%;
+
+    --card: 220 20% 10%;
+    --card-foreground: 160 10% 95%;
+
+    --primary: 160 70% 45%;
+    --primary-foreground: 220 20% 8%;
+
+    --secondary: 160 30% 15%;
+    --secondary-foreground: 160 60% 80%;
+
+    --muted: 220 15% 18%;
+    --muted-foreground: 220 10% 60%;
+
+    --accent: 220 15% 20%;
+    --accent-foreground: 160 10% 90%;
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 12% 20%;
+    --input: 220 12% 20%;
+    --ring: 160 70% 45%;`;
+
 /** Design tokens + Tailwind 4 mapping. Overschrijft de globals.css van create-next-app. */
 const GLOBALS_CSS = `@import 'tailwindcss';
 
 /* ============================================================
-   CLASS-BASED DARK MODE (Tailwind 4)
+   DARK MODE (Tailwind 4)
+   .dark          = expliciet donker
+   .theme-system  = volg de systeemvoorkeur
    ============================================================ */
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark {
+    &:where(.dark, .dark *) {
+        @slot;
+    }
+    @media (prefers-color-scheme: dark) {
+        &:where(.theme-system, .theme-system *) {
+            @slot;
+        }
+    }
+}
 
 /* ============================================================
    DESIGN TOKENS — light
@@ -56,30 +99,14 @@ const GLOBALS_CSS = `@import 'tailwindcss';
    DESIGN TOKENS — dark
    ============================================================ */
 .dark {
-    --background: 220 20% 8%;
-    --foreground: 160 10% 95%;
+${DARK_TOKENS}
+}
 
-    --card: 220 20% 10%;
-    --card-foreground: 160 10% 95%;
-
-    --primary: 160 70% 45%;
-    --primary-foreground: 220 20% 8%;
-
-    --secondary: 160 30% 15%;
-    --secondary-foreground: 160 60% 80%;
-
-    --muted: 220 15% 18%;
-    --muted-foreground: 220 10% 60%;
-
-    --accent: 220 15% 20%;
-    --accent-foreground: 160 10% 90%;
-
-    --destructive: 0 70% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 12% 20%;
-    --input: 220 12% 20%;
-    --ring: 160 70% 45%;
+/* Systeemvoorkeur volgen (cookie "system" of nog geen cookie). */
+@media (prefers-color-scheme: dark) {
+    .theme-system {
+${DARK_TOKENS}
+    }
 }
 
 /* ============================================================
@@ -139,18 +166,17 @@ html.dark {
     color-scheme: dark;
 }
 
+@media (prefers-color-scheme: dark) {
+    html.theme-system {
+        color-scheme: dark;
+    }
+}
+
 :focus-visible {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
 }
 `;
-
-/** Script dat vóór de eerste paint de juiste class zet — geen flits. */
-export const NO_FLASH_SCRIPT =
-  "(function(){try{var m=document.cookie.match(/(?:^|; )theme=([^;]*)/);" +
-  "var t=m?decodeURIComponent(m[1]):'system';" +
-  "var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);" +
-  "document.documentElement.classList.toggle('dark',d);}catch(e){}})()";
 
 const THEME_PROVIDER = `'use client'
 
@@ -181,9 +207,17 @@ function resolve(theme: Theme): 'light' | 'dark' {
     return theme
 }
 
+/** Zet de juiste class op <html>. Zelfde logica als server-side in de layout. */
+function applyClass(theme: Theme): void {
+    const root = document.documentElement
+    root.classList.remove('dark', 'theme-system')
+    if (theme === 'dark') root.classList.add('dark')
+    else if (theme === 'system') root.classList.add('theme-system')
+}
+
 /**
  * Beheert light/dark mode. De voorkeur staat in een cookie (nooit localStorage),
- * zodat de server hem kan lezen en het no-flash script hem vóór de paint toepast.
+ * zodat de server de class al kan zetten — geen flits, geen inline script.
  */
 export function ThemeProvider({ children, initialTheme }: { children: ReactNode; initialTheme?: Theme }) {
     const [theme, setThemeState] = useState<Theme>(initialTheme ?? 'system')
@@ -191,17 +225,15 @@ export function ThemeProvider({ children, initialTheme }: { children: ReactNode;
 
     // Class op <html> synchroon houden met de voorkeur.
     useEffect(() => {
-        const current = resolve(theme)
-        setResolvedTheme(current)
-        document.documentElement.classList.toggle('dark', current === 'dark')
+        applyClass(theme)
+        setResolvedTheme(resolve(theme))
 
         if (theme !== 'system') return
 
+        // Systeemvoorkeur kan tijdens de sessie wijzigen. De CSS pikt dat zelf
+        // op; we houden alleen resolvedTheme bij voor componenten die het nodig hebben.
         const mq = window.matchMedia('(prefers-color-scheme: dark)')
-        const onChange = (e: MediaQueryListEvent) => {
-            setResolvedTheme(e.matches ? 'dark' : 'light')
-            document.documentElement.classList.toggle('dark', e.matches)
-        }
+        const onChange = (e: MediaQueryListEvent) => setResolvedTheme(e.matches ? 'dark' : 'light')
         mq.addEventListener('change', onChange)
         return () => mq.removeEventListener('change', onChange)
     }, [theme])

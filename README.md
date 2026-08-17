@@ -51,8 +51,14 @@ De talen wijzig je op één plek: `LOCALES` en `DEFAULT_LOCALE` bovenaan
 ### Light/dark mode
 
 Class-based dark mode (Tailwind 4 `@custom-variant`), met design tokens in
-`globals.css` en de voorkeur in de `theme`-cookie — nooit localStorage. Een
-klein inline script zet de class vóór de eerste paint, dus geen witte flits.
+`globals.css` en de voorkeur in de `theme`-cookie — nooit localStorage. De class
+wordt **server-side** gezet, dus geen flits en geen inline script:
+
+| cookie | `<html>` | resultaat |
+|---|---|---|
+| `dark` | `class="dark"` | altijd donker |
+| `light` | *(geen class)* | altijd licht |
+| `system` of geen | `class="theme-system"` | CSS volgt `prefers-color-scheme` |
 
 - `src/app/globals.css` — tokens voor light en dark + `@theme inline`-mapping
 - `src/components/theme/ThemeProvider.tsx` — `useTheme()`, `setTheme()`, `cycleTheme()`

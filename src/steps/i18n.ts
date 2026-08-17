@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { NO_FLASH_SCRIPT } from "./theme.js";
 
 /**
  * HARDE REGEL: elke gegenereerde frontend gebruikt next-intl, ALTIJD, met
@@ -189,8 +188,12 @@ import { routing } from '@/i18n/routing'
 import { ThemeProvider, type Theme } from '@/components/theme/ThemeProvider'
 import '../globals.css'
 
-// Zet de dark-class vóór de eerste paint, zodat er geen witte flits is.
-const themeScript = \`${NO_FLASH_SCRIPT}\`
+/** Class op <html> op basis van de cookie — server-side, dus geen flits. */
+function themeClass(theme: Theme): string | undefined {
+    if (theme === 'dark') return 'dark'
+    if (theme === 'system') return 'theme-system'
+    return undefined
+}
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -235,10 +238,7 @@ export default async function RootLayout({
         cookieTheme === 'light' || cookieTheme === 'dark' || cookieTheme === 'system' ? cookieTheme : 'system'
 
     return (
-        <html lang={locale} className={initialTheme === 'dark' ? 'dark' : undefined} suppressHydrationWarning>
-            <head>
-                <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-            </head>
+        <html lang={locale} className={themeClass(initialTheme)} suppressHydrationWarning>
             <body className={\`\${geistSans.variable} \${geistMono.variable} antialiased\`}>
                 <NextIntlClientProvider>
                     <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>
