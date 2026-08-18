@@ -276,8 +276,17 @@ npx --yes github:DafkeDD/starter-cli
 npm cloneert de repo, draait automatisch de build (`prepare` → `tsc`) en start de
 CLI. Je hoeft dus niets op npm te publiceren.
 
-> `--yes` is belangrijk: npx cachet git-installaties en pakt anders een oude
-> versie. Blijft hij hangen op oude code, dan helpt `npm cache clean --force`.
+`--yes` doet twee dingen: het onderdrukt de vraag *"Need to install the following
+packages… Ok to proceed? (y)"*, en het zorgt dat npx een verse versie ophaalt in
+plaats van een gecachete. Blijft hij toch op oude code hangen, dan helpt
+`npm cache clean --force`.
+
+Wil je die vraag nooit meer zien, ook zonder `--yes`? Dan zet je hem één keer uit
+voor je hele machine:
+
+```bash
+npm config set yes true
+```
 
 ### Of globaal
 
@@ -286,7 +295,8 @@ npm install -g github:DafkeDD/starter-cli
 starter-cli
 ```
 
-Opnieuw draaien van dat install-commando is meteen ook de update.
+Dit is de rustigste manier: geen npx-vraag, geen download bij elke run. Opnieuw
+draaien van dat install-commando is meteen ook de update.
 
 ---
 
