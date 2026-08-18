@@ -17,7 +17,7 @@ Op dit moment zijn er drie vragen:
 ```bash
 mkdir mijn-project
 cd mijn-project
-npx --yes github:DafkeDD/starter-cli
+npx github:DafkeDD/starter-cli
 ```
 
 ---
@@ -249,23 +249,14 @@ die aan om je huisstijl te wijzigen.
 ```bash
 mkdir mijn-project
 cd mijn-project
-npx --yes github:DafkeDD/starter-cli
+npx github:DafkeDD/starter-cli
 ```
 
 npm cloneert de repo, draait automatisch de build (`prepare` → `tsc`) en start de
 CLI. Je hoeft dus niets op npm te publiceren.
 
-`--yes` doet twee dingen: het onderdrukt de vraag *"Need to install the following
-packages… Ok to proceed? (y)"*, en het zorgt dat npx een verse versie ophaalt in
-plaats van een gecachete. Blijft hij toch op oude code hangen, dan helpt
+npx cachet git-installaties. Blijft hij op oude code hangen, dan helpt
 `npm cache clean --force`.
-
-Wil je die vraag nooit meer zien, ook zonder `--yes`? Dan zet je hem één keer uit
-voor je hele machine:
-
-```bash
-npm config set yes true
-```
 
 ### Of globaal
 
