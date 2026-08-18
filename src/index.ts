@@ -5,6 +5,7 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { askFrontend, scaffoldFrontend, FRONTEND_DIR, FRONTEND_PORT } from "./steps/frontend.js";
 import { askBackend, scaffoldBackend, BACKEND_DIR, BACKEND_PORT } from "./steps/backend.js";
+import { askGithub, pushToGithub } from "./steps/github.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import type { PackageManager } from "./types.js";
 
@@ -25,10 +26,12 @@ async function main(): Promise<void> {
 
   // Installeert in de huidige map (waar het commando gedraaid wordt).
   const projectDir = process.cwd();
+  const defaultName = path.basename(projectDir);
 
   // ---- Vragen -------------------------------------------------------------
   const frontend = await askFrontend();
   const backend = await askBackend();
+  const github = await askGithub(defaultName);
   // Volgende vragen komen hier (database, ...).
 
   // ---- Controles ----------------------------------------------------------
@@ -60,6 +63,11 @@ async function main(): Promise<void> {
       `${pc.dim("Thema   ")}  ${pc.cyan("light / dark / system")}${pc.dim("  cookie-based, geen flits")}`,
       `${pc.dim("UI      ")}  ${pc.cyan("zelfgebouwde componenten")}${pc.dim("  geen shadcn/ui of andere library")}`,
       `${pc.dim("Prettier")}  ${pc.cyan("frontend + backend")}${pc.dim("  zelfde projectsettings")}`,
+      `${pc.dim("GitHub  ")}  ${pc.cyan(
+        github.useGithub
+          ? `${github.projectName}${pc.dim(`  (${github.isPrivate ? "privé" : "openbaar"})`)}`
+          : "geen",
+      )}`,
       `${pc.dim("Manager ")}  ${pc.cyan(PACKAGE_MANAGER)}`,
     ].join("\n"),
     "Overzicht",
@@ -68,6 +76,7 @@ async function main(): Promise<void> {
   // ---- Genereren ----------------------------------------------------------
   await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER);
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER);
+  await pushToGithub(github, projectDir);
 
   // ---- Volgende stappen ---------------------------------------------------
   // Commando + bijbehorende URL; de URL's worden onder elkaar uitgelijnd.

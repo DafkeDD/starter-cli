@@ -2,15 +2,17 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment zijn er twee vragen:
+Op dit moment zijn er drie vragen:
 
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
    Tailwind CSS, ESLint, **next-intl**, **light/dark mode** en **Prettier**.
 2. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
    in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
+3. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
+   repo met die naam aan en pusht meteen.
 
-Beide mappen krijgen exact dezelfde Prettier-instellingen.
+`frontend/` en `backend/` krijgen exact dezelfde Prettier-instellingen.
 
 ```bash
 mkdir mijn-project
@@ -113,6 +115,30 @@ Gegenereerd met `@nestjs/cli@latest new --strict --skip-git`, daarna aangepast:
 cd backend
 npm run start:dev        # http://localhost:5000
 ```
+
+---
+
+## GitHub
+
+Zeg je ja op vraag 3, dan vraagt de CLI hoe je het project wil noemen. Die naam
+wordt **ook de naam van de repo** op GitHub. Daarna vraagt hij nog of de repo
+privé (standaard) of openbaar moet zijn.
+
+Wat er dan gebeurt:
+
+1. Een root-`.gitignore` en root-`README.md` (met de projectnaam) worden
+   aangemaakt, als ze nog niet bestaan.
+2. `.git`-mappen in submappen worden verwijderd — anders committeert git die
+   als lege "embedded repository" en mist je code.
+3. `git init`, `git add .`, commit op branch `main`. Heeft git nog geen
+   `user.name`/`user.email`, dan wordt er een fallback-identiteit gebruikt voor
+   die ene commit.
+4. Een bestaande `origin` wordt verwijderd, zodat stap 5 niet faalt.
+5. `gh repo create <projectnaam> --private --source=. --remote=origin --push`
+
+Hiervoor heb je de [GitHub CLI](https://cli.github.com) nodig, ingelogd met
+`gh auth login`. Ontbreekt die, dan slaat de CLI het pushen over en toont hij de
+commando's om het handmatig te doen — de rest van je project blijft gewoon staan.
 
 ---
 
@@ -273,6 +299,7 @@ starter-cli/
    ├─ steps/
    │  ├─ frontend.ts     # vraag 1 + scaffold van Next.js
    │  ├─ backend.ts      # vraag 2 + scaffold van Express of NestJS
+   │  ├─ github.ts       # vraag 3 + repo aanmaken en pushen
    │  ├─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
    │  ├─ theme.ts        # light/dark mode + design tokens
    │  └─ rules.ts        # PROJECT-RULES.md + AGENTS.md-blok
@@ -302,6 +329,7 @@ De CLI vraagt geen bevestiging meer — na je keuzes begint hij meteen.
 
 - Node.js 18.18 of hoger
 - Git (voor installatie vanaf GitHub)
+- GitHub CLI (`gh`), ingelogd — alleen als je vraag 3 met ja beantwoordt
 
 ## Licentie
 
