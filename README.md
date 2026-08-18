@@ -8,7 +8,7 @@ Op dit moment zijn er twee vragen:
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
    Tailwind CSS, ESLint, **next-intl**, **light/dark mode** en **Prettier**.
 2. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
-   in TypeScript, op poort 5000, ook met **Prettier**.
+   in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
 
 Beide mappen krijgen exact dezelfde Prettier-instellingen.
 
@@ -22,7 +22,7 @@ npx --yes github:DafkeDD/starter-cli
 
 ## Harde regels
 
-Deze drie liggen vast en zijn bewust geen vraag in de CLI:
+Deze liggen vast en zijn bewust geen vraag in de CLI:
 
 1. **next-intl, altijd** — 4 talen (`en`, `de`, `nl`, `fr`), standaard Engels,
    en de taal staat nooit in de URL.
@@ -31,6 +31,8 @@ Deze drie liggen vast en zijn bewust geen vraag in de CLI:
    uit `react-icons`, nooit `lucide-react`.
 3. **Light/dark mode, altijd** — class-based, voorkeur in een cookie, met een
    toggle in de UI.
+4. **De backend draait altijd op poort 5000** — hard gezet in de code, geen
+   env-override.
 
 Ze worden ook in het gegenereerde project vastgelegd, in `PROJECT-RULES.md` en
 als `project-rules`-blok in `AGENTS.md` — die Claude Code automatisch meeleest
@@ -77,7 +79,7 @@ mee in de projectrepo.
 | | |
 |---|---|
 | Locatie | `backend/` |
-| Poort | `5000` (override met `PORT` in `.env`) |
+| Poort | **altijd 5000** — hard gezet, geen `PORT`-env-override |
 | Taal | TypeScript |
 | Prettier | zelfde projectsettings als de frontend, zonder de tailwind-plugin |
 
@@ -87,7 +89,6 @@ Een minimale, expliciete setup — geen generator, dus geen ballast:
 
 ```
 backend/
-├─ .env.example          # PORT=5000
 ├─ .gitignore
 ├─ .prettierrc / .prettierignore
 ├─ package.json          # dev (tsx watch), build (tsc), start
@@ -104,10 +105,9 @@ npm run dev              # http://localhost:5000/health -> {"status":"ok"}
 
 Gegenereerd met `@nestjs/cli@latest new --strict --skip-git`, daarna aangepast:
 
-- `src/main.ts` luistert op `process.env.PORT ?? 5000` in plaats van 3000
+- `src/main.ts` luistert op `5000` in plaats van 3000
 - de meegeleverde `.prettierrc` van Nest wordt vervangen door de onze
-- er wordt een `.gitignore` en `.env.example` toegevoegd (Nest maakt die niet
-  aan bij `--skip-git`)
+- er wordt een `.gitignore` toegevoegd (die maakt Nest niet aan bij `--skip-git`)
 
 ```bash
 cd backend

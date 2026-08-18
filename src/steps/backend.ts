@@ -10,7 +10,10 @@ import type { PackageManager } from "../types.js";
 /** Submap binnen het project waarin de backend wordt geïnstalleerd. */
 export const BACKEND_DIR = "backend";
 
-/** Vaste poort waarop de backend draait (beide varianten). */
+/**
+ * HARDE REGEL: de backend draait ALTIJD op poort 5000 — beide varianten,
+ * geen env-override. Wil je dit ooit wijzigen, dan is dit de enige plek.
+ */
 export const BACKEND_PORT = 5000;
 
 export type Backend = "node" | "nestjs" | "none";
@@ -79,7 +82,9 @@ export async function scaffoldBackend(
 const NODE_SERVER = `import express from 'express'
 
 const app = express()
-const port = Number(process.env.PORT) || ${BACKEND_PORT}
+
+/** De backend draait ALTIJD op poort ${BACKEND_PORT}. */
+const PORT = ${BACKEND_PORT}
 
 app.use(express.json())
 
@@ -87,8 +92,8 @@ app.get('/health', (_req, res) => {
     res.json({ status: 'ok' })
 })
 
-app.listen(port, () => {
-    console.log(\`Backend luistert op http://localhost:\${port}\`)
+app.listen(PORT, () => {
+    console.log(\`Backend luistert op http://localhost:\${PORT}\`)
 })
 `;
 
@@ -127,7 +132,6 @@ async function scaffoldNode(target: string, pm: PackageManager): Promise<void> {
   fs.writeFileSync(path.join(target, "tsconfig.json"), JSON.stringify(tsconfig, null, 4) + "\n");
   fs.writeFileSync(path.join(target, "src", "index.ts"), NODE_SERVER);
   fs.writeFileSync(path.join(target, ".gitignore"), "node_modules/\ndist/\n.env\n");
-  fs.writeFileSync(path.join(target, ".env.example"), `PORT=${BACKEND_PORT}\n`);
 
   await withProgress(
     "Express + TypeScript installeren",
@@ -179,7 +183,6 @@ async function scaffoldNest(
       if (!fs.existsSync(gitignore)) {
         fs.writeFileSync(gitignore, "node_modules/\ndist/\ncoverage/\n.env\n");
       }
-      fs.writeFileSync(path.join(target, ".env.example"), `PORT=${BACKEND_PORT}\n`);
 
       // Nest levert zijn eigen .prettierrc mee — die vervangen we door de onze.
       await setupPrettier(pm, target, { tailwind: false });
@@ -197,7 +200,7 @@ function patchNestPort(mainPath: string): void {
     mainPath,
     src.replace(
       /await\s+app\.listen\([^)]*\)/,
-      `await app.listen(process.env.PORT ?? ${BACKEND_PORT})`,
+      `await app.listen(${BACKEND_PORT})`,
     ),
   );
 }
