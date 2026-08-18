@@ -1,53 +1,79 @@
 import pc from "picocolors";
 
+/** Functie om het label van een lopende progress-bar te wijzigen. */
+export type UpdateLabel = (label: string) => void;
+
+const BAR_WIDTH = 24;
+/** Vaste tekens vóór het label: "  " + bar + " " + "100%" + "  " */
+const PREFIX_WIDTH = 2 + BAR_WIDTH + 1 + 4 + 2;
+
 /**
- * Toont een geanimeerde progress-bar terwijl `task` loopt.
+ * Toont één geanimeerde progress-bar terwijl `task` loopt.
  *
- * create-next-app/npm rapporteren geen betrouwbaar percentage, dus de bar loopt
+ * De taak krijgt een `update()` mee om het label te wijzigen zonder een nieuwe
+ * bar te starten — zo blijft het bij één bar per onderdeel (frontend, backend).
+ *
+ * npm/create-next-app rapporteren geen betrouwbaar percentage, dus de bar loopt
  * asymptotisch naar ~95% op basis van verstreken tijd en springt pas naar 100%
- * wanneer de taak echt klaar is. Op een niet-TTY (bv. gepipete output) draait
- * de taak zonder animatie.
+ * wanneer de taak echt klaar is. Op een niet-TTY (bv. gepipete output) draait de
+ * taak zonder animatie.
  */
 export async function withProgress<T>(
   label: string,
-  task: () => Promise<T>,
+  task: (update: UpdateLabel) => Promise<T>,
   estMs = 25000,
 ): Promise<T> {
-  if (!process.stdout.isTTY) {
-    return task();
+  const out = process.stdout;
+
+  if (!out.isTTY) {
+    return task(() => {});
   }
 
-  const width = 24;
   const start = Date.now();
+  let current = label;
   let finished = false;
 
   const draw = (ratio: number): void => {
     const r = Math.max(0, Math.min(1, ratio));
-    const filled = Math.round(r * width);
-    const bar = "█".repeat(filled) + "░".repeat(width - filled);
+    const filled = Math.round(r * BAR_WIDTH);
+    const bar = "█".repeat(filled) + "░".repeat(BAR_WIDTH - filled);
     const pct = String(Math.round(r * 100)).padStart(3, " ");
-    process.stdout.write(`\r  ${pc.cyan(bar)} ${pct}%  ${pc.dim(label)}   `);
+
+    // Label afkappen zodat de regel nooit wrapt — anders maakt elke redraw
+    // een nieuwe lijn in plaats van dezelfde te overschrijven.
+    const room = Math.max(0, (out.columns || 80) - PREFIX_WIDTH - 1);
+    const text = current.length > room ? current.slice(0, Math.max(0, room - 1)) + "…" : current;
+
+    out.cursorTo(0);
+    out.clearLine(0);
+    out.write(`  ${pc.cyan(bar)} ${pct}%  ${pc.dim(text)}`);
+  };
+
+  const update: UpdateLabel = (next) => {
+    current = next;
   };
 
   draw(0);
   const timer = setInterval(() => {
     if (finished) return;
     const elapsed = Date.now() - start;
-    const ratio = Math.min(0.95, 1 - Math.exp(-elapsed / estMs));
-    draw(ratio);
+    draw(Math.min(0.95, 1 - Math.exp(-elapsed / estMs)));
   }, 120);
 
-  try {
-    const result = await task();
+  const stop = (): void => {
     finished = true;
     clearInterval(timer);
+  };
+
+  try {
+    const result = await task(update);
+    stop();
     draw(1);
-    process.stdout.write("\n");
+    out.write("\n");
     return result;
   } catch (err) {
-    finished = true;
-    clearInterval(timer);
-    process.stdout.write("\n");
+    stop();
+    out.write("\n");
     throw err;
   }
 }

@@ -135,7 +135,7 @@ async function scaffoldNode(target: string, pm: PackageManager): Promise<void> {
 
   await withProgress(
     "Express + TypeScript installeren",
-    async () => {
+    async (update) => {
       await addDeps(pm, target, ["express@latest"]);
       await addDevDeps(pm, target, [
         "typescript@latest",
@@ -143,9 +143,11 @@ async function scaffoldNode(target: string, pm: PackageManager): Promise<void> {
         "@types/express@latest",
         "@types/node@latest",
       ]);
+
+      update("Prettier installeren en formatteren");
       await setupPrettier(pm, target, { tailwind: false });
     },
-    25000,
+    30000,
   );
 }
 
@@ -160,7 +162,7 @@ async function scaffoldNest(
 ): Promise<void> {
   await withProgress(
     "NestJS installeren",
-    async () => {
+    async (update) => {
       await runQuiet(
         "npx",
         [
@@ -185,6 +187,7 @@ async function scaffoldNest(
       }
 
       // Nest levert zijn eigen .prettierrc mee — die vervangen we door de onze.
+      update("Prettier installeren en formatteren");
       await setupPrettier(pm, target, { tailwind: false });
     },
     60000,

@@ -41,8 +41,8 @@ export async function askFrontend(): Promise<Frontend> {
 }
 
 /**
- * Genereert een Next.js-project met create-next-app@latest in ./frontend.
- * Stil uitgevoerd, met een eigen progress-bar erboven.
+ * Genereert de frontend in ./frontend: Next.js + next-intl + light/dark mode +
+ * Prettier. Alles onder één progress-bar.
  */
 export async function scaffoldFrontend(
   frontend: Frontend,
@@ -56,14 +56,14 @@ export async function scaffoldFrontend(
 
   const target = path.join(projectDir, FRONTEND_DIR);
   p.log.step(
-    `Next.js + next-intl (${LOCALES.join(", ")}, standaard ${DEFAULT_LOCALE}) + Prettier opzetten in ./${FRONTEND_DIR} ...`,
+    `Next.js + next-intl (${LOCALES.join(", ")}, standaard ${DEFAULT_LOCALE}) + light/dark + Prettier opzetten in ./${FRONTEND_DIR} ...`,
   );
 
   const pmFlag = pm === "pnpm" ? "--use-pnpm" : pm === "yarn" ? "--use-yarn" : "--use-npm";
 
   await withProgress(
     "Next.js installeren (laatste versie)",
-    async () => {
+    async (update) => {
       await runQuiet(
         "npx",
         [
@@ -85,28 +85,17 @@ export async function scaffoldFrontend(
         ],
         projectDir,
       );
-    },
-    45000,
-  );
 
-  await withProgress(
-    "next-intl + light/dark mode opzetten",
-    async () => {
-      // Bestanden eerst wegschrijven, daarna de packages installeren.
+      update("next-intl + light/dark mode opzetten");
       setupTheme(target);
       setupNextIntl(target);
       setupRules(target);
       await addDeps(pm, target, ["next-intl@latest", "react-icons@latest"]);
-    },
-    25000,
-  );
 
-  await withProgress(
-    "Prettier + tailwind-plugin installeren",
-    async () => {
+      update("Prettier installeren en formatteren");
       await setupPrettier(pm, target);
     },
-    20000,
+    75000,
   );
 
   p.log.success(

@@ -280,7 +280,7 @@ starter-cli/
       ├─ exec.ts         # commando's draaien (Windows-proof)
       ├─ install.ts      # (dev)dependencies toevoegen
       ├─ prettier.ts     # .prettierrc + plugin + formatteren
-      └─ progress.ts     # progress-bar tijdens trage installs
+      └─ progress.ts     # één progress-bar per onderdeel
 ```
 
 ### Een nieuwe vraag toevoegen
@@ -289,6 +289,10 @@ starter-cli/
 2. Importeer beide in `src/index.ts`.
 3. Roep `ask<Naam>()` aan bij de vragen en `scaffold<Naam>()` bij het genereren.
 4. Voeg een regel toe aan het overzicht (`p.note`).
+
+Gebruik in `scaffold<Naam>()` **één** `withProgress(...)` voor het hele
+onderdeel. Deelstappen benoem je met de meegegeven `update('...')`, zodat het
+bij één bar blijft in plaats van meerdere onder elkaar.
 
 De CLI vraagt geen bevestiging meer — na je keuzes begint hij meteen.
 
