@@ -2,10 +2,15 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment is er één vraag: welke frontend. De enige optie is **Next.js**
-(altijd de laatste versie, via `create-next-app@latest`), die geïnstalleerd wordt
-in een submap `frontend/` — inclusief TypeScript, Tailwind CSS, ESLint,
-**next-intl**, **light/dark mode** en **Prettier** met de projectinstellingen.
+Op dit moment zijn er twee vragen:
+
+1. **Welke frontend?** — Next.js (altijd de laatste versie, via
+   `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
+   Tailwind CSS, ESLint, **next-intl**, **light/dark mode** en **Prettier**.
+2. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
+   in TypeScript, op poort 5000, ook met **Prettier**.
+
+Beide mappen krijgen exact dezelfde Prettier-instellingen.
 
 ```bash
 mkdir mijn-project
@@ -64,6 +69,50 @@ frontend/
 `create-next-app` draait met `--disable-git`, dus `frontend/` krijgt géén eigen
 `.git`. Anders zou het een genest repo worden en committeert je frontend niet
 mee in de projectrepo.
+
+---
+
+## Backend
+
+| | |
+|---|---|
+| Locatie | `backend/` |
+| Poort | `5000` (override met `PORT` in `.env`) |
+| Taal | TypeScript |
+| Prettier | zelfde projectsettings als de frontend, zonder de tailwind-plugin |
+
+### Node.js + Express
+
+Een minimale, expliciete setup — geen generator, dus geen ballast:
+
+```
+backend/
+├─ .env.example          # PORT=5000
+├─ .gitignore
+├─ .prettierrc / .prettierignore
+├─ package.json          # dev (tsx watch), build (tsc), start
+├─ tsconfig.json
+└─ src/index.ts          # express-app met GET /health
+```
+
+```bash
+cd backend
+npm run dev              # http://localhost:5000/health -> {"status":"ok"}
+```
+
+### NestJS
+
+Gegenereerd met `@nestjs/cli@latest new --strict --skip-git`, daarna aangepast:
+
+- `src/main.ts` luistert op `process.env.PORT ?? 5000` in plaats van 3000
+- de meegeleverde `.prettierrc` van Nest wordt vervangen door de onze
+- er wordt een `.gitignore` en `.env.example` toegevoegd (Nest maakt die niet
+  aan bij `--skip-git`)
+
+```bash
+cd backend
+npm run start:dev        # http://localhost:5000
+```
 
 ---
 
@@ -159,8 +208,11 @@ puntkomma's, tab width 4, print width 120, `prettier-plugin-tailwindcss` voor he
 sorteren van class-namen), een `.prettierignore`, en de scripts `format` en
 `format:check`. De gegenereerde code wordt meteen in die stijl geformatteerd.
 
-De config staat in `src/utils/prettier.ts` in de constante `PRETTIER_CONFIG` —
-pas die aan om je huisstijl te wijzigen.
+De backend krijgt exact dezelfde instellingen, alleen zonder
+`prettier-plugin-tailwindcss` — die heeft daar geen nut.
+
+De config staat in `src/utils/prettier.ts` in de functie `buildConfig()` — pas
+die aan om je huisstijl te wijzigen.
 
 ---
 
@@ -216,10 +268,11 @@ starter-cli/
 ├─ package.json          # bin: starter-cli -> dist/index.js
 ├─ tsconfig.json
 └─ src/
-   ├─ index.ts           # flow: vraag -> overzicht -> genereren
+   ├─ index.ts           # flow: vragen -> overzicht -> genereren
    ├─ types.ts
    ├─ steps/
    │  ├─ frontend.ts     # vraag 1 + scaffold van Next.js
+   │  ├─ backend.ts      # vraag 2 + scaffold van Express of NestJS
    │  ├─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
    │  ├─ theme.ts        # light/dark mode + design tokens
    │  └─ rules.ts        # PROJECT-RULES.md + AGENTS.md-blok
