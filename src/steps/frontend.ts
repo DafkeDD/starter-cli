@@ -12,6 +12,9 @@ import type { PackageManager } from "../types.js";
 /** Submap binnen het project waarin de frontend wordt geïnstalleerd. */
 export const FRONTEND_DIR = "frontend";
 
+/** Poort waarop `next dev` draait. */
+export const FRONTEND_PORT = 3000;
+
 export type Frontend = "nextjs" | "none";
 
 /**

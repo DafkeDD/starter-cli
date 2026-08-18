@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import { askFrontend, scaffoldFrontend, FRONTEND_DIR } from "./steps/frontend.js";
+import { askFrontend, scaffoldFrontend, FRONTEND_DIR, FRONTEND_PORT } from "./steps/frontend.js";
 import { askBackend, scaffoldBackend, BACKEND_DIR, BACKEND_PORT } from "./steps/backend.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import type { PackageManager } from "./types.js";
@@ -70,19 +70,33 @@ async function main(): Promise<void> {
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER);
 
   // ---- Volgende stappen ---------------------------------------------------
-  const steps: string[] = [];
+  // Commando + bijbehorende URL; de URL's worden onder elkaar uitgelijnd.
+  const steps: Array<[command: string, url: string]> = [];
   if (frontend === "nextjs") {
-    steps.push(`cd ${FRONTEND_DIR} && ${PACKAGE_MANAGER} run dev`);
+    steps.push([
+      `cd ${FRONTEND_DIR} && ${PACKAGE_MANAGER} run dev`,
+      `http://localhost:${FRONTEND_PORT}`,
+    ]);
   }
   if (backend === "node") {
-    steps.push(`cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run dev        # http://localhost:${BACKEND_PORT}/health`);
+    steps.push([
+      `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run dev`,
+      `http://localhost:${BACKEND_PORT}/health`,
+    ]);
   } else if (backend === "nestjs") {
-    steps.push(`cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run start:dev  # http://localhost:${BACKEND_PORT}`);
+    steps.push([
+      `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run start:dev`,
+      `http://localhost:${BACKEND_PORT}`,
+    ]);
   }
 
   const outParts: string[] = [pc.green("Klaar!")];
   if (steps.length) {
-    outParts.push(pc.dim("Volgende stappen:") + "\n  " + steps.join("\n  "));
+    const widest = Math.max(...steps.map(([command]) => command.length));
+    const lines = steps.map(
+      ([command, url]) => `${command.padEnd(widest)}  ${pc.dim(`# ${url}`)}`,
+    );
+    outParts.push(pc.dim("Volgende stappen:") + "\n  " + lines.join("\n  "));
   }
   p.outro(outParts.join("\n\n"));
 }
