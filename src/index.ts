@@ -6,7 +6,6 @@ import pc from "picocolors";
 import { askFrontend, scaffoldFrontend, FRONTEND_DIR, FRONTEND_PORT } from "./steps/frontend.js";
 import { askBackend, scaffoldBackend, BACKEND_DIR, BACKEND_PORT } from "./steps/backend.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
-import { askPreview, startPreview } from "./steps/preview.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import type { PackageManager } from "./types.js";
 
@@ -33,7 +32,6 @@ async function main(): Promise<void> {
   const frontend = await askFrontend();
   const backend = await askBackend();
   const github = await askGithub(defaultName);
-  const preview = await askPreview(frontend, backend);
   // Volgende vragen komen hier (database, ...).
 
   // ---- Controles ----------------------------------------------------------
@@ -65,7 +63,6 @@ async function main(): Promise<void> {
       `${pc.dim("Thema   ")}  ${pc.cyan("light / dark / system")}${pc.dim("  cookie-based, geen flits")}`,
       `${pc.dim("UI      ")}  ${pc.cyan("zelfgebouwde componenten")}${pc.dim("  geen shadcn/ui of andere library")}`,
       `${pc.dim("Prettier")}  ${pc.cyan("frontend + backend")}${pc.dim("  zelfde projectsettings")}`,
-      `${pc.dim("Preview ")}  ${pc.cyan(preview ? "ja, dev-servers starten" : "nee")}`,
       `${pc.dim("GitHub  ")}  ${pc.cyan(
         github.useGithub
           ? `${github.projectName}${pc.dim(`  (${github.isPrivate ? "privé" : "openbaar"})`)}`
@@ -101,8 +98,6 @@ async function main(): Promise<void> {
       `http://localhost:${BACKEND_PORT}`,
     ]);
   }
-
-  await startPreview(preview, projectDir, frontend, backend, PACKAGE_MANAGER);
 
   const outParts: string[] = [pc.green("Klaar!")];
   if (steps.length) {

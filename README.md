@@ -2,7 +2,7 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment zijn er vier vragen:
+Op dit moment zijn er drie vragen:
 
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
@@ -11,8 +11,6 @@ Op dit moment zijn er vier vragen:
    in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
 3. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
    repo met die naam aan en pusht meteen.
-4. **Preview zien?** — bij ja start hij na de installatie elke dev-server in een
-   eigen terminalvenster en opent hij de browser.
 
 `frontend/` en `backend/` krijgen exact dezelfde Prettier-instellingen.
 
@@ -141,25 +139,6 @@ Wat er dan gebeurt:
 Hiervoor heb je de [GitHub CLI](https://cli.github.com) nodig, ingelogd met
 `gh auth login`. Ontbreekt die, dan slaat de CLI het pushen over en toont hij de
 commando's om het handmatig te doen — de rest van je project blijft gewoon staan.
-
----
-
-## Preview
-
-Zeg je ja op vraag 4, dan gebeurt er ná de installatie (en na het pushen) dit:
-
-- Elke gekozen dev-server start in een **eigen terminalvenster**, met de juiste
-  map als werkdirectory:
-  - `frontend` → `npm run dev` → <http://localhost:3000>
-  - `backend` → `npm run dev` of `npm run start:dev` → <http://localhost:5000>
-- Na een korte wachttijd opent de **browser** op de frontend.
-
-Per platform gebruikt hij: `cmd /c start` op Windows, `osascript` + Terminal.app
-op macOS, en de eerste beschikbare emulator op Linux (`x-terminal-emulator`,
-`gnome-terminal`, `konsole`, `xfce4-terminal`, `xterm`).
-
-Lukt het openen van een venster niet, dan toont de CLI gewoon de commando's om
-ze zelf te starten — er gaat niets stuk.
 
 ---
 
@@ -332,15 +311,13 @@ starter-cli/
    │  ├─ backend.ts      # vraag 2 + scaffold van Express of NestJS
    │  ├─ github.ts       # vraag 3 + repo aanmaken en pushen
    │  ├─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
-   │  ├─ preview.ts      # vraag 4 + dev-servers in eigen terminals
    │  ├─ theme.ts        # light/dark mode + design tokens
    │  └─ rules.ts        # PROJECT-RULES.md + AGENTS.md-blok
    └─ utils/
       ├─ exec.ts         # commando's draaien (Windows-proof)
       ├─ install.ts      # (dev)dependencies toevoegen
       ├─ prettier.ts     # .prettierrc + plugin + formatteren
-      ├─ progress.ts     # één progress-bar per onderdeel
-      └─ terminal.ts     # terminalvenster en browser openen
+      └─ progress.ts     # één progress-bar per onderdeel
 ```
 
 ### Een nieuwe vraag toevoegen
