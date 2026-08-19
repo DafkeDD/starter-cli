@@ -2,14 +2,16 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment zijn er drie vragen:
+Op dit moment zijn er vier vragen:
 
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
    Tailwind CSS, ESLint, **next-intl**, **light/dark mode** en **Prettier**.
 2. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
    in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
-3. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
+3. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
+   aansluiten op een bestaande, of niets.
+4. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
    repo met die naam aan en pusht meteen.
 
 `frontend/` en `backend/` krijgen exact dezelfde Prettier-instellingen.
@@ -118,9 +120,56 @@ npm run start:dev        # http://localhost:5000
 
 ---
 
+## OIDC / SSO
+
+```
+OIDC / SSO?
+  - Nieuwe OIDC-server        -> ./oidc op poort 9000
+  - Aansluiten op bestaande   -> vraagt de issuer-URL
+  - Geen
+
+(alleen bij aansluiten)  Is dit project het beheerpaneel?
+  - Nee, gewone app
+  - Ja, dit is het beheerpaneel
+```
+
+### Nieuwe OIDC-server
+
+Komt in `oidc/` op poort 9000 en draait op
+[`oidc-provider`](https://github.com/panva/node-oidc-provider):
+
+```
+oidc/
+|- package.json
+`- src/
+   |- index.ts      # provider, login/registratie-routes, admin-API
+   |- clients.ts    # aangesloten apps + hun branding
+   |- users.ts      # gebruikers, rollen, blokkeren
+   |- views.ts      # login- en registratieschermen
+   |- adapter.ts    # opslag van sessies, grants en tokens
+   |- storage.ts    # JSON-bestanden in .data/ (vervang door Postgres)
+   `- keys.ts       # ondertekeningssleutels, een keer aangemaakt
+```
+
+Het project zelf wordt meteen als eerste client geregistreerd, met een
+gegenereerd `client_secret`. De eerste gebruiker die zich registreert wordt
+admin.
+
+**Het loginscherm past zich aan de app aan.** De hub leest de `client_id` uit de
+authorization request en toont naam, kleur en tagline van die app. Zo heeft elke
+app zijn eigen look, terwijl het wachtwoord alleen bij de hub komt.
+
+### Aansluiten op een bestaande server
+
+De CLI vraagt de issuer-URL en of dit project het beheerpaneel is. Dat
+beheerpaneel is namelijk gewoon een client-app zoals elke andere, alleen met een
+rol-check erbij.
+
+---
+
 ## GitHub
 
-Zeg je ja op vraag 3, dan vraagt de CLI hoe je het project wil noemen. Die naam
+Zeg je ja op vraag 4, dan vraagt de CLI hoe je het project wil noemen. Die naam
 wordt **ook de naam van de repo** op GitHub. Daarna vraagt hij nog of de repo
 privé (standaard) of openbaar moet zijn.
 
@@ -294,21 +343,25 @@ starter-cli
 starter-cli/
 ├─ package.json          # bin: starter-cli -> dist/index.js
 ├─ tsconfig.json
+├─ templates/            # échte bestanden, geen strings in de code
+│  └─ oidc-server/       # wordt oidc/ in het gegenereerde project
 └─ src/
    ├─ index.ts           # flow: vragen -> overzicht -> genereren
    ├─ types.ts
    ├─ steps/
    │  ├─ frontend.ts     # vraag 1 + scaffold van Next.js
    │  ├─ backend.ts      # vraag 2 + scaffold van Express of NestJS
-   │  ├─ github.ts       # vraag 3 + repo aanmaken en pushen
+   │  ├─ github.ts       # vraag 4 + repo aanmaken en pushen
    │  ├─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
+   │  ├─ oidc.ts         # vraag 3 + de OIDC-server
    │  ├─ theme.ts        # light/dark mode + design tokens
    │  └─ rules.ts        # PROJECT-RULES.md + AGENTS.md-blok
    └─ utils/
       ├─ exec.ts         # commando's draaien (Windows-proof)
       ├─ install.ts      # (dev)dependencies toevoegen
       ├─ prettier.ts     # .prettierrc + plugin + formatteren
-      └─ progress.ts     # één progress-bar per onderdeel
+      ├─ progress.ts     # één progress-bar per onderdeel
+      └─ template.ts     # templates/ kopiëren en {{VARS}} invullen
 ```
 
 ### Een nieuwe vraag toevoegen
@@ -330,7 +383,7 @@ De CLI vraagt geen bevestiging meer — na je keuzes begint hij meteen.
 
 - Node.js 18.18 of hoger
 - Git (voor installatie vanaf GitHub)
-- GitHub CLI (`gh`), ingelogd — alleen als je vraag 3 met ja beantwoordt
+- GitHub CLI (`gh`), ingelogd — alleen als je vraag 4 met ja beantwoordt
 
 ## Licentie
 

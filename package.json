@@ -7,7 +7,8 @@
     "starter-cli": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "templates"
   ],
   "engines": {
     "node": ">=18.18"

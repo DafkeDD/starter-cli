@@ -5,6 +5,7 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { askFrontend, scaffoldFrontend, FRONTEND_DIR, FRONTEND_PORT } from "./steps/frontend.js";
 import { askBackend, scaffoldBackend, BACKEND_DIR, BACKEND_PORT } from "./steps/backend.js";
+import { askOidc, scaffoldOidcServer, OIDC_DIR, OIDC_PORT } from "./steps/oidc.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import type { PackageManager } from "./types.js";
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   // ---- Vragen -------------------------------------------------------------
   const frontend = await askFrontend();
   const backend = await askBackend();
+  const oidc = await askOidc(defaultName);
   const github = await askGithub(defaultName);
   // Volgende vragen komen hier (database, ...).
 
@@ -40,6 +42,9 @@ async function main(): Promise<void> {
   }
   if (backend !== "none") {
     assertEmpty(path.join(projectDir, BACKEND_DIR), BACKEND_DIR);
+  }
+  if (oidc.mode === "new") {
+    assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
   }
 
   // ---- Overzicht ----------------------------------------------------------
@@ -62,6 +67,13 @@ async function main(): Promise<void> {
       )}`,
       `${pc.dim("Thema   ")}  ${pc.cyan("light / dark / system")}${pc.dim("  cookie-based, geen flits")}`,
       `${pc.dim("UI      ")}  ${pc.cyan("zelfgebouwde componenten")}${pc.dim("  geen shadcn/ui of andere library")}`,
+      `${pc.dim("OIDC    ")}  ${pc.cyan(
+        oidc.mode === "new"
+          ? `nieuwe server${pc.dim(`  -> ./${OIDC_DIR} (poort ${OIDC_PORT})`)}`
+          : oidc.mode === "existing"
+            ? `${oidc.issuer}${pc.dim(oidc.isAdminPanel ? "  (dit is het beheerpaneel)" : "")}`
+            : "geen",
+      )}`,
       `${pc.dim("Prettier")}  ${pc.cyan("frontend + backend")}${pc.dim("  zelfde projectsettings")}`,
       `${pc.dim("GitHub  ")}  ${pc.cyan(
         github.useGithub
@@ -76,6 +88,7 @@ async function main(): Promise<void> {
   // ---- Genereren ----------------------------------------------------------
   await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER);
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER);
+  await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER);
   await pushToGithub(github, projectDir);
 
   // ---- Volgende stappen ---------------------------------------------------
@@ -96,6 +109,13 @@ async function main(): Promise<void> {
     steps.push([
       `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run start:dev`,
       `http://localhost:${BACKEND_PORT}`,
+    ]);
+  }
+
+  if (oidc.mode === "new") {
+    steps.push([
+      `cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run dev`,
+      `http://localhost:${OIDC_PORT}/.well-known/openid-configuration`,
     ]);
   }
 
