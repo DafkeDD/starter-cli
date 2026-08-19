@@ -32,9 +32,11 @@ export function copyTemplate(templateDir: string, target: string, vars: Vars): v
         `Verwacht op: ${source}\n\n` +
         "Bijna altijd betekent dit dat de map templates/ niet mee gepusht is naar\n" +
         "GitHub. Controleer dat met:\n" +
-        "  git ls-files templates | head\n" +
+        "  git ls-files templates\n" +
         "Geeft dat niets terug, dan:\n" +
-        "  git add -f templates && git commit -m \"templates toevoegen\" && git push\n\n" +
+        "  git add -f templates\n" +
+        "  git commit -m \"templates toevoegen\"\n" +
+        "  git push\n\n" +
         "Draai daarna opnieuw met npx --yes, want npx cachet de vorige versie.",
     );
   }
