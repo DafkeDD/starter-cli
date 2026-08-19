@@ -9,6 +9,7 @@ import {
   askOidc,
   scaffoldOidcServer,
   scaffoldOidcClient,
+  scaffoldOidcFrontend,
   OIDC_DIR,
   OIDC_PORT,
 } from "./steps/oidc.js";
@@ -96,6 +97,7 @@ async function main(): Promise<void> {
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER);
   await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER);
   await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER);
+  scaffoldOidcFrontend(oidc, frontend, projectDir);
   await pushToGithub(github, projectDir);
 
   // ---- Volgende stappen ---------------------------------------------------

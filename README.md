@@ -200,6 +200,37 @@ Is dit project het beheerpaneel, dan komen daar `/api/admin/users`,
 admin-API van de hub namens de ingelogde beheerder. De hub controleert de rol
 daarna nog eens zelf - de autorisatie zit dus niet alleen in de backend.
 
+### De frontend
+
+Bij **beide** keuzes komt er ook een loginpagina in de frontend, in jouw stijl:
+
+```
+frontend/
+|- .env.local                        # BACKEND_URL + NEXT_PUBLIC_BACKEND_URL
+`- src/
+   |- proxy.ts                       # krijgt er een auth-check bij
+   |- lib/auth.ts                    # getUser(), loginUrl(), backendFetch()
+   |- app/[locale]/login/page.tsx    # jouw eigen loginpagina
+   `- components/auth/UserBadge.tsx  # wie is ingelogd + uitloggen
+```
+
+Is dit project het beheerpaneel, dan komt daar `app/[locale]/admin/page.tsx` en
+`components/admin/UserTable.tsx` bij: gebruikers, aangesloten apps, en knoppen om
+te blokkeren.
+
+Alles volgt de harde regels: **vertaald in vier talen**, **design tokens** (dus
+dark mode werkt), en **zelf gebouwde componenten**.
+
+**Op de loginpagina staat geen wachtwoordveld.** Er staat een knop die naar de
+OIDC-server gaat. Dat is precies wat SSO mogelijk maakt: het wachtwoord komt
+alleen bij de hub, en ben je daar al ingelogd via een andere app, dan kom je
+meteen binnen.
+
+De auth-check in `proxy.ts` kijkt alleen of er een sessiecookie is. Bewust geen
+call naar de backend, want middleware draait bij elk request. De echte controle
+gebeurt server-side in de pagina en nog eens in de backend - een cookie bewijst
+niets.
+
 ### Aansluiten op een bestaande server
 
 De CLI vraagt de issuer-URL en of dit project het beheerpaneel is. Dat
@@ -387,6 +418,7 @@ starter-cli/
 ├─ templates/            # échte bestanden, geen strings in de code
 │  ├─ oidc-server/               # wordt oidc/ in het project
 │  ├─ oidc-client-express/  (+ -admin)   # backend als OIDC-client
+│  ├─ oidc-frontend/        (+ -admin)   # loginpagina en beheerscherm
 │  └─ oidc-client-nest/     (+ -admin)
 └─ src/
    ├─ index.ts           # flow: vragen -> overzicht -> genereren

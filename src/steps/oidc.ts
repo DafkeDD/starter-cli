@@ -6,7 +6,8 @@ import { addDeps, addDevDeps } from "../utils/install.js";
 import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
 import { copyTemplate } from "../utils/template.js";
-import { FRONTEND_PORT } from "./frontend.js";
+import { FRONTEND_DIR, FRONTEND_PORT } from "./frontend.js";
+import type { Frontend } from "./frontend.js";
 import { BACKEND_DIR, BACKEND_PORT } from "./backend.js";
 import type { Backend } from "./backend.js";
 import type { PackageManager } from "../types.js";
@@ -389,4 +390,243 @@ function loadEnvInScripts(target: string, backend: Backend): void {
 
   pkg.scripts = scripts;
   fs.writeFileSync(file, JSON.stringify(pkg, null, 4) + "\n", "utf8");
+}
+
+/* ------------------------------------------------------------------ */
+/* Frontend: loginpagina, auth-check en (optioneel) beheerscherm        */
+/* ------------------------------------------------------------------ */
+
+/** Vertalingen die de OIDC-schermen nodig hebben, in alle vier de talen. */
+const OIDC_MESSAGES: Record<string, Record<string, Record<string, string>>> = {
+  en: {
+    Login: {
+      title: "Sign in",
+      description:
+        "Signing in happens on the central identity server. You will be sent there and back again.",
+      button: "Continue to sign in",
+      hint: "Already signed in elsewhere? Then you come straight back in.",
+    },
+    Auth: { login: "Sign in", logout: "Sign out", admin: "admin" },
+    Admin: {
+      title: "Administration",
+      users: "Users ({count})",
+      clients: "Connected apps ({count})",
+      name: "Name",
+      email: "Email",
+      role: "Role",
+      status: "Status",
+      clientId: "client_id",
+      redirectUris: "Redirect URIs",
+      active: "active",
+      blocked: "blocked",
+      block: "Block",
+      unblock: "Unblock",
+      you: "you",
+      denied: "No access",
+      deniedBody: "You are signed in with the role {role}. This page is for administrators only.",
+      loadError: "Could not load the data (HTTP {status}).",
+    },
+  },
+  de: {
+    Login: {
+      title: "Anmelden",
+      description:
+        "Die Anmeldung läuft über den zentralen Identity-Server. Du wirst dorthin und wieder zurück geschickt.",
+      button: "Weiter zur Anmeldung",
+      hint: "Schon woanders angemeldet? Dann kommst du direkt rein.",
+    },
+    Auth: { login: "Anmelden", logout: "Abmelden", admin: "Admin" },
+    Admin: {
+      title: "Verwaltung",
+      users: "Benutzer ({count})",
+      clients: "Verbundene Apps ({count})",
+      name: "Name",
+      email: "E-Mail",
+      role: "Rolle",
+      status: "Status",
+      clientId: "client_id",
+      redirectUris: "Redirect-URIs",
+      active: "aktiv",
+      blocked: "gesperrt",
+      block: "Sperren",
+      unblock: "Entsperren",
+      you: "du",
+      denied: "Kein Zugriff",
+      deniedBody: "Du bist mit der Rolle {role} angemeldet. Diese Seite ist nur für Administratoren.",
+      loadError: "Daten konnten nicht geladen werden (HTTP {status}).",
+    },
+  },
+  nl: {
+    Login: {
+      title: "Inloggen",
+      description:
+        "Inloggen gebeurt op de centrale identity-server. Je wordt daarheen gestuurd en komt daarna terug.",
+      button: "Verder met inloggen",
+      hint: "Al ergens anders ingelogd? Dan kom je meteen binnen.",
+    },
+    Auth: { login: "Inloggen", logout: "Uitloggen", admin: "beheerder" },
+    Admin: {
+      title: "Beheer",
+      users: "Gebruikers ({count})",
+      clients: "Aangesloten apps ({count})",
+      name: "Naam",
+      email: "E-mail",
+      role: "Rol",
+      status: "Status",
+      clientId: "client_id",
+      redirectUris: "Redirect-URI's",
+      active: "actief",
+      blocked: "geblokkeerd",
+      block: "Blokkeren",
+      unblock: "Deblokkeren",
+      you: "jij",
+      denied: "Geen toegang",
+      deniedBody: "Je bent ingelogd met de rol {role}. Deze pagina is alleen voor beheerders.",
+      loadError: "Kon de gegevens niet laden (HTTP {status}).",
+    },
+  },
+  fr: {
+    Login: {
+      title: "Connexion",
+      description:
+        "La connexion se fait sur le serveur d'identité central. Vous y serez redirigé puis ramené ici.",
+      button: "Continuer vers la connexion",
+      hint: "Déjà connecté ailleurs ? Vous entrez directement.",
+    },
+    Auth: { login: "Connexion", logout: "Déconnexion", admin: "admin" },
+    Admin: {
+      title: "Administration",
+      users: "Utilisateurs ({count})",
+      clients: "Applications connectées ({count})",
+      name: "Nom",
+      email: "E-mail",
+      role: "Rôle",
+      status: "Statut",
+      clientId: "client_id",
+      redirectUris: "URI de redirection",
+      active: "actif",
+      blocked: "bloqué",
+      block: "Bloquer",
+      unblock: "Débloquer",
+      you: "vous",
+      denied: "Accès refusé",
+      deniedBody: "Vous êtes connecté avec le rôle {role}. Cette page est réservée aux administrateurs.",
+      loadError: "Impossible de charger les données (HTTP {status}).",
+    },
+  },
+};
+
+/** Zet de loginpagina, de auth-check en eventueel het beheerscherm in de frontend. */
+export function scaffoldOidcFrontend(
+  choice: OidcChoice,
+  frontend: Frontend,
+  projectDir: string,
+): void {
+  if (choice.mode === "none") return;
+  if (frontend === "none") {
+    p.log.warn("Geen frontend gekozen — de loginpagina wordt overgeslagen.");
+    return;
+  }
+
+  const target = path.join(projectDir, FRONTEND_DIR);
+  const vars = { BACKEND_URL: `http://localhost:${BACKEND_PORT}` };
+
+  copyTemplate("oidc-frontend", target, vars);
+  if (choice.isAdminPanel) copyTemplate("oidc-frontend-admin", target, vars);
+
+  writeFrontendEnv(target);
+  mergeMessages(target, choice.isAdminPanel);
+  patchProxy(target, choice.isAdminPanel);
+
+  p.log.success(
+    `Loginpagina${choice.isAdminPanel ? " en beheerscherm" : ""} toegevoegd aan ./${FRONTEND_DIR}.`,
+  );
+}
+
+/** De frontend moet weten waar de backend draait. */
+function writeFrontendEnv(target: string): void {
+  const file = path.join(target, ".env.local");
+  const lines = [
+    "# Waar de backend draait. Server-side gebruikt BACKEND_URL,",
+    "# client components gebruiken NEXT_PUBLIC_BACKEND_URL.",
+    `BACKEND_URL=http://localhost:${BACKEND_PORT}`,
+    `NEXT_PUBLIC_BACKEND_URL=http://localhost:${BACKEND_PORT}`,
+    "",
+  ].join("\n");
+
+  fs.writeFileSync(file, lines, "utf8");
+  fs.writeFileSync(path.join(target, ".env.example"), lines, "utf8");
+}
+
+/** Voegt de OIDC-teksten toe aan messages/<locale>.json, zonder de rest te raken. */
+function mergeMessages(target: string, includeAdmin: boolean): void {
+  for (const [locale, sections] of Object.entries(OIDC_MESSAGES)) {
+    const file = path.join(target, "messages", `${locale}.json`);
+    if (!fs.existsSync(file)) continue;
+
+    const messages = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    for (const [name, entries] of Object.entries(sections)) {
+      if (name === "Admin" && !includeAdmin) continue;
+      messages[name] = { ...(messages[name] as object | undefined), ...entries };
+    }
+
+    fs.writeFileSync(file, JSON.stringify(messages, null, 4) + "\n", "utf8");
+  }
+}
+
+/**
+ * Voegt een auth-check toe aan de bestaande next-intl proxy.
+ *
+ * Bewust alleen een cookie-check, geen call naar de backend: middleware draait
+ * bij élk request en dat zou elke paginaweergave vertragen. De échte controle
+ * gebeurt server-side in de pagina zelf, en nog eens in de backend.
+ */
+function patchProxy(target: string, includeAdmin: boolean): void {
+  const file = path.join(target, "src", "proxy.ts");
+  if (!fs.existsSync(file)) return;
+
+  let src = fs.readFileSync(file, "utf8");
+  if (src.includes("PROTECTED_PREFIXES")) return;
+
+  const protectedList = includeAdmin ? "['/admin']" : "[]";
+
+  src = src.replace(
+    "import createMiddleware from 'next-intl/middleware'",
+    [
+      "import createMiddleware from 'next-intl/middleware'",
+      "import { NextResponse, type NextRequest } from 'next/server'",
+    ].join("\n"),
+  );
+
+  src = src.replace(
+    "export default createMiddleware(routing)",
+    [
+      "const intlMiddleware = createMiddleware(routing)",
+      "",
+      "/**",
+      " * Paden die alleen voor ingelogde gebruikers zijn. Vul aan naar wens.",
+      " */",
+      `const PROTECTED_PREFIXES: string[] = ${protectedList}`,
+      "",
+      "/**",
+      " * Snelle poort: is er überhaupt een sessiecookie? Zo niet, meteen naar",
+      " * /login. De echte controle (bestaat de sessie, welke rol) gebeurt",
+      " * server-side in de pagina en in de backend — een cookie bewijst niets.",
+      " */",
+      "export default function proxy(request: NextRequest) {",
+      "    const path = request.nextUrl.pathname",
+      "    const isProtected = PROTECTED_PREFIXES.some(prefix => path.startsWith(prefix))",
+      "",
+      "    if (isProtected && !request.cookies.has('sid')) {",
+      "        const url = request.nextUrl.clone()",
+      "        url.pathname = '/login'",
+      "        return NextResponse.redirect(url)",
+      "    }",
+      "",
+      "    return intlMiddleware(request)",
+      "}",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(file, src, "utf8");
 }
