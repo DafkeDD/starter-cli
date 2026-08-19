@@ -26,6 +26,19 @@ export function render(content: string, vars: Vars): string {
 export function copyTemplate(templateDir: string, target: string, vars: Vars): void {
   const source = path.join(TEMPLATE_ROOT, templateDir);
 
+  if (!fs.existsSync(source)) {
+    throw new Error(
+      `De template "${templateDir}" ontbreekt in de installatie.\n` +
+        `Verwacht op: ${source}\n\n` +
+        "Bijna altijd betekent dit dat de map templates/ niet mee gepusht is naar\n" +
+        "GitHub. Controleer dat met:\n" +
+        "  git ls-files templates | head\n" +
+        "Geeft dat niets terug, dan:\n" +
+        "  git add -f templates && git commit -m \"templates toevoegen\" && git push\n\n" +
+        "Draai daarna opnieuw met npx --yes, want npx cachet de vorige versie.",
+    );
+  }
+
   for (const entry of fs.readdirSync(source, { withFileTypes: true, recursive: true })) {
     const from = path.join(entry.parentPath ?? source, entry.name);
     const relative = path.relative(source, from);
