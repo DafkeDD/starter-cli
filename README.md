@@ -159,6 +159,47 @@ admin.
 authorization request en toont naam, kleur en tagline van die app. Zo heeft elke
 app zijn eigen look, terwijl het wachtwoord alleen bij de hub komt.
 
+### De client-kant in de backend
+
+Bij **beide** keuzes (nieuwe server of aansluiten) wordt je backend een
+OIDC-client. Wat erbij komt:
+
+```
+backend/
+|- .env / .env.example   # issuer, client_id, client_secret, session_secret
+`- src/auth/
+   |- oidc.ts            # verbinding met de hub, lui opgezet
+   |- routes.ts          # /auth/start, /auth/callback, /auth/me, /auth/logout
+   |- require-auth.ts    # requireAuth en requireAdmin middleware
+   `- admin.ts           # beheer-endpoints (leeg als dit geen beheerpaneel is)
+```
+
+Bij NestJS wordt dat een `AuthModule` met `auth.controller.ts`,
+`auth.service.ts` en `admin.controller.ts` in plaats van losse Express-routes.
+De code past zich dus aan je backend-keuze aan.
+
+| endpoint | doet |
+|---|---|
+| `GET /auth/start` | stuurt door naar de hub, met PKCE |
+| `GET /auth/callback` | wisselt de code in, haalt het profiel op, zet de sessie |
+| `GET /auth/me` | wie ben ik - de frontend gebruikt dit |
+| `GET /auth/logout` | wist de sessie van deze app |
+
+Drie dingen die bewust zo zijn:
+
+1. **Het access token blijft server-side.** `/auth/me` geeft naam, e-mail en rol
+   terug, nooit het token.
+2. **De discovery gebeurt lui**, pas bij de eerste login. Je backend start dus
+   ook als de hub even niet draait, met een nette foutmelding in plaats van een
+   crash.
+3. **De `.env` wordt echt ingelezen** - het dev-script draait met
+   `--env-file=.env`, zonder extra package.
+
+Is dit project het beheerpaneel, dan komen daar `/api/admin/users`,
+`/api/admin/clients` en `/api/admin/users/:id/blocked` bij. Die praten met de
+admin-API van de hub namens de ingelogde beheerder. De hub controleert de rol
+daarna nog eens zelf - de autorisatie zit dus niet alleen in de backend.
+
 ### Aansluiten op een bestaande server
 
 De CLI vraagt de issuer-URL en of dit project het beheerpaneel is. Dat
@@ -344,7 +385,9 @@ starter-cli/
 ├─ package.json          # bin: starter-cli -> dist/index.js
 ├─ tsconfig.json
 ├─ templates/            # échte bestanden, geen strings in de code
-│  └─ oidc-server/       # wordt oidc/ in het gegenereerde project
+│  ├─ oidc-server/               # wordt oidc/ in het project
+│  ├─ oidc-client-express/  (+ -admin)   # backend als OIDC-client
+│  └─ oidc-client-nest/     (+ -admin)
 └─ src/
    ├─ index.ts           # flow: vragen -> overzicht -> genereren
    ├─ types.ts

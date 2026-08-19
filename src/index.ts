@@ -5,7 +5,13 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { askFrontend, scaffoldFrontend, FRONTEND_DIR, FRONTEND_PORT } from "./steps/frontend.js";
 import { askBackend, scaffoldBackend, BACKEND_DIR, BACKEND_PORT } from "./steps/backend.js";
-import { askOidc, scaffoldOidcServer, OIDC_DIR, OIDC_PORT } from "./steps/oidc.js";
+import {
+  askOidc,
+  scaffoldOidcServer,
+  scaffoldOidcClient,
+  OIDC_DIR,
+  OIDC_PORT,
+} from "./steps/oidc.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import type { PackageManager } from "./types.js";
@@ -89,6 +95,7 @@ async function main(): Promise<void> {
   await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER);
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER);
   await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER);
+  await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER);
   await pushToGithub(github, projectDir);
 
   // ---- Volgende stappen ---------------------------------------------------
