@@ -167,6 +167,7 @@ OIDC-client. Wat erbij komt:
 ```
 backend/
 |- .env / .env.example   # issuer, client_id, client_secret, session_secret
+|- src/env.ts            # leest .env in, eerste import in index.ts
 `- src/auth/
    |- oidc.ts            # verbinding met de hub, lui opgezet
    |- routes.ts          # /auth/start, /auth/callback, /auth/me, /auth/logout
@@ -192,8 +193,10 @@ Drie dingen die bewust zo zijn:
 2. **De discovery gebeurt lui**, pas bij de eerste login. Je backend start dus
    ook als de hub even niet draait, met een nette foutmelding in plaats van een
    crash.
-3. **De `.env` wordt echt ingelezen** - het dev-script draait met
-   `--env-file=.env`, zonder extra package.
+3. **De `.env` wordt echt ingelezen** via `process.loadEnvFile()` in
+   `src/env.ts`, dat als eerste import binnenkomt. Geen `dotenv`-package, en
+   geen vlaggen in de npm-scripts - die vragen quotes, en cmd quote anders dan
+   bash.
 
 Is dit project het beheerpaneel, dan komen daar `/api/admin/users`,
 `/api/admin/clients` en `/api/admin/users/:id/blocked` bij. Die praten met de

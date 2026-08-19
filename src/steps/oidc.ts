@@ -237,7 +237,7 @@ export async function scaffoldOidcClient(
       }
 
       writeEnv(target, choice);
-      loadEnvInScripts(target, backend);
+      loadEnvInCode(target, backend);
 
       await addDeps(pm, target, ["openid-client@latest", "cookie-session@latest", "cors@latest"]);
       await addDevDeps(pm, target, ["@types/cookie-session@latest", "@types/cors@latest"]);
@@ -370,26 +370,29 @@ function patchNestModule(target: string): void {
 }
 
 /**
- * Zorgt dat de dev/start-scripts de .env inlezen.
- * Node doet dat niet vanzelf; `--env-file` regelt het zonder extra package.
+ * Zet de import van src/env.ts bovenaan het entry-bestand.
+ *
+ * Waarom een apart bestand en niet gewoon `process.loadEnvFile()` bovenaan
+ * index.ts: in ESM draaien alle imports vóór de rest van de module. Die aanroep
+ * zou dus ná het laden van auth/oidc.ts gebeuren, en die leest `process.env`
+ * meteen bij het laden — te laat dus. Als eerste import werkt het wel, want
+ * ESM evalueert imports in de volgorde waarin ze staan.
+ *
+ * En geen `--env-file` in de npm-scripts: dat vraagt quotes, en cmd quote
+ * anders dan bash. Op Windows brak dat.
  */
-function loadEnvInScripts(target: string, backend: Backend): void {
-  const file = path.join(target, "package.json");
+function loadEnvInCode(target: string, backend: Backend): void {
+  const isExpress = backend === "node";
+  const file = path.join(target, "src", isExpress ? "index.ts" : "main.ts");
   if (!fs.existsSync(file)) return;
 
-  const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as { scripts?: Record<string, string> };
-  const scripts = pkg.scripts ?? {};
+  const src = fs.readFileSync(file, "utf8");
+  if (src.includes("./env")) return;
 
-  if (backend === "node") {
-    scripts.dev = "tsx watch --env-file=.env src/index.ts";
-    scripts.start = "node --env-file=.env dist/index.js";
-  } else {
-    // Nest start zijn eigen proces; --env-file gaat via NODE_OPTIONS.
-    scripts["start:dev"] = "nest start --watch --exec 'node --env-file=.env'";
-  }
+  const line = isExpress ? "import './env.js'" : "import './env'";
+  const comment = "// Leest .env in. Moet de eerste import blijven — zie src/env.ts.";
 
-  pkg.scripts = scripts;
-  fs.writeFileSync(file, JSON.stringify(pkg, null, 4) + "\n", "utf8");
+  fs.writeFileSync(file, comment + "\n" + line + "\n" + src, "utf8");
 }
 
 /* ------------------------------------------------------------------ */
