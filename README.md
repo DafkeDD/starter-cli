@@ -86,10 +86,34 @@ mee in de projectrepo.
 De vraag **"Wil je onze custom UI installeren?"** komt meteen na de
 frontend-vraag, en alleen als er een frontend is.
 
-Bij ja wordt `github:DafkeDD/projectx-ui` als dependency toegevoegd aan
-`frontend/`. Daar zitten de gedeelde layout en componenten in, zodat elke app
-dezelfde knoppen, dropdowns en schil heeft. Kleuren en logo stel je per app in
-via de design tokens in `globals.css`.
+Bij ja gebeuren er twee dingen:
+
+1. `github:DafkeDD/projectx-ui` wordt als dependency toegevoegd aan `frontend/`.
+2. De `globals.css` uit dat package **overschrijft** die van de app.
+
+De design tokens - kleuren, radius, typografie - komen dus uit de custom UI, niet
+uit de CLI. Eén plek voor de waarheid, zodat elke app er hetzelfde uitziet. Wil
+je per app afwijken, pas dan achteraf `frontend/src/app/globals.css` aan; die
+wordt niet meer aangeraakt zolang je de CLI niet opnieuw draait.
+
+De CLI zoekt die stylesheet op deze plekken in het package, in deze volgorde:
+
+```
+globals.css
+dist/globals.css
+styles/globals.css
+src/globals.css
+src/app/globals.css
+```
+
+Vindt hij er geen, dan houdt de frontend zijn eigen tokens en krijg je een
+waarschuwing met de doorzochte paden. Staat jouw stylesheet ergens anders, voeg
+het pad dan toe aan `STYLESHEET_CANDIDATES` in `src/steps/ui.ts`.
+
+> De naam waaronder het package landt wordt bepaald door te kijken welke
+> dependency erbij komt, niet door de spec te parsen - npm herschrijft die
+> namelijk (een `file:`-pad wordt relatief, een `github:`-spec kan een
+> commit-hash krijgen).
 
 Lukt de installatie niet - repo privé, geen git-toegang, geen netwerk - dan
 **stopt de CLI niet**. Je krijgt een waarschuwing met het commando om het later
