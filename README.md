@@ -7,9 +7,9 @@ Op dit moment zijn er vijf vragen:
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
    Tailwind CSS, ESLint, **next-intl**, **light/dark mode** en **Prettier**.
-2. **Custom UI installeren?** — installeert `github:DafkeDD/projectx-ui` in de
-   frontend: de gedeelde layout en componenten, zodat elke app er hetzelfde
-   uitziet.
+2. **Custom UI installeren?** — kopieert de 68 componenten van
+   `github:DafkeDD/projectx-ui` als broncode in de frontend, en neemt de design
+   tokens over in `globals.css`. Zo ziet elke app er hetzelfde uit.
 3. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
    in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
 4. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
@@ -86,44 +86,99 @@ mee in de projectrepo.
 De vraag **"Wil je onze custom UI installeren?"** komt meteen na de
 frontend-vraag, en alleen als er een frontend is.
 
-Bij ja gebeuren er twee dingen:
+`projectx-ui` is **geen runtime-dependency**. Het is een monorepo met een
+registry, net zoals de shadcn-CLI: de componenten worden als **broncode** in je
+project gekopieerd, zodat je ze per app kan aanpassen zonder een fork.
 
-1. `github:DafkeDD/projectx-ui` wordt als dependency toegevoegd aan `frontend/`.
-2. De `globals.css` uit dat package **overschrijft** die van de app.
+Bij ja gebeurt dit:
 
-De design tokens - kleuren, radius, typografie - komen dus uit de custom UI, niet
-uit de CLI. Eén plek voor de waarheid, zodat elke app er hetzelfde uitziet. Wil
-je per app afwijken, pas dan achteraf `frontend/src/app/globals.css` aan; die
-wordt niet meer aangeraakt zolang je de CLI niet opnieuw draait.
+1. `github:DafkeDD/projectx-ui` komt als **devDependency** in `frontend/` — enkel
+   om later opnieuw `add` te kunnen draaien.
+2. `frontend/projectx-ui.json` wordt geschreven met onze paden.
+3. `projectx-ui init` kopieert de design tokens, de basislaag en de hulpfuncties.
+4. `projectx-ui add --all` kopieert alle 68 componenten.
+5. `frontend/src/app/globals.css` wordt **overschreven** door de variant die de
+   tokens van de custom UI gebruikt.
 
-De CLI zoekt die stylesheet op deze plekken in het package, in deze volgorde:
+Resultaat in `frontend/`:
 
 ```
-globals.css
-dist/globals.css
-styles/globals.css
-src/globals.css
-src/app/globals.css
+projectx-ui.json              # config van de projectx-ui CLI
+src/components/ui/
+  ui.css                      # verzamelbestand, importeert alle component-CSS
+  tokens.css                  # alle kleuren, radius, typografie
+  base.css                    # body, typografie, scrollbars
+  button.tsx  button.css      # 68 componenten, elk .tsx + .css
+  ...
+src/app/globals.css           # importeert ui.css + koppelt Tailwind aan de tokens
 ```
 
-Vindt hij er geen, dan houdt de frontend zijn eigen tokens en krijg je een
-waarschuwing met de doorzochte paden. Staat jouw stylesheet ergens anders, voeg
-het pad dan toe aan `STYLESHEET_CANDIDATES` in `src/steps/ui.ts`.
+Importeren doe je per component:
 
-> De naam waaronder het package landt wordt bepaald door te kijken welke
-> dependency erbij komt, niet door de spec te parsen - npm herschrijft die
-> namelijk (een `file:`-pad wordt relatief, een `github:`-spec kan een
-> commit-hash krijgen).
+```tsx
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+```
 
-Lukt de installatie niet - repo privé, geen git-toegang, geen netwerk - dan
-**stopt de CLI niet**. Je krijgt een waarschuwing met het commando om het later
-alsnog te doen, en de rest van je project is gewoon af:
+De componenten hebben **nul externe dependencies** — alleen `react` en
+`react-dom`. Geen shadcn, geen Radix, precies zoals de projectregel voorschrijft.
+
+### Hoe zie je dat globals.css echt overgenomen is?
+
+Zonder custom UI staat er `--primary: 160 84% 39%` (groen, HSL) in
+`globals.css`. Mét custom UI staat er bovenaan:
+
+```css
+@import 'tailwindcss';
+@import '../components/ui/ui.css';
+```
+
+en verderop een `@theme inline` die naar `var(--bg)`, `var(--accent)`,
+`var(--surface)` wijst in plaats van naar HSL-waarden. Snel te controleren:
+
+```
+findstr /C:"components/ui/ui.css" frontend\src\app\globals.css
+```
+
+De accentkleur wordt teal (`#0d9488` in light, `#2dd4bf` in dark).
+
+### Light/dark blijft werken
+
+projectx-ui schakelt met `[data-theme]` op `<html>`, de CLI gebruikt daarnaast de
+class `.dark` / `.theme-system` voor Tailwind's `dark:`-utilities. De layout zet
+**allebei**, dus ze schakelen samen om:
+
+```html
+<html lang="en" class="dark" data-theme="dark">   <!-- cookie theme=dark -->
+<html lang="en" data-theme="light">               <!-- cookie theme=light -->
+<html lang="en" class="theme-system">             <!-- system: CSS kijkt zelf -->
+```
+
+### Bijwerken
+
+Nieuwe versie van de componenten ophalen:
+
+```
+cd frontend
+npm install --save-dev github:DafkeDD/projectx-ui
+npx projectx-ui add --all --force
+```
+
+Zonder `--force` blijven jouw aanpassingen staan en krijg je per bestand een
+melding dat het al bestaat.
+
+### Als het misloopt
+
+Lukt het niet - geen netwerk, repo verplaatst - dan **stopt de CLI niet**. Je
+krijgt een waarschuwing met de commando's om het later alsnog te doen, en de
+rest van je project is gewoon af:
 
 ```
 !  Custom UI installeren is niet gelukt: ... (exit code 128).
-   Is de repo privé, log dan in met 'gh auth login' of zet een SSH-sleutel klaar.
-   Later alsnog installeren:
-     cd frontend && npm install github:DafkeDD/projectx-ui
+   De frontend houdt zijn eigen tokens en componenten — verder werkt alles.
+   Later alsnog:
+     cd frontend && npm install --save-dev github:DafkeDD/projectx-ui
+     npx projectx-ui init --yes && npx projectx-ui add --all
 ```
 
 De repo staat als `UI_PACKAGE` bovenaan `src/steps/ui.ts` - daar wijzig je hem.

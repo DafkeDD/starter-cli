@@ -222,6 +222,14 @@ function themeClass(theme: Theme): string | undefined {
     return undefined
 }
 
+/**
+ * Attribuut voor de custom UI, die met [data-theme] werkt. Bij 'system' zetten
+ * we bewust niets: die tokens vallen dan zelf terug op prefers-color-scheme.
+ */
+function themeAttribute(theme: Theme): 'light' | 'dark' | undefined {
+    return theme === 'system' ? undefined : theme
+}
+
 const geistSans = Geist({
     variable: '--font-geist-sans',
     subsets: ['latin']
@@ -265,7 +273,12 @@ export default async function RootLayout({
         cookieTheme === 'light' || cookieTheme === 'dark' || cookieTheme === 'system' ? cookieTheme : 'system'
 
     return (
-        <html lang={locale} className={themeClass(initialTheme)} suppressHydrationWarning>
+        <html
+            lang={locale}
+            className={themeClass(initialTheme)}
+            data-theme={themeAttribute(initialTheme)}
+            suppressHydrationWarning
+        >
             <body className={\`\${geistSans.variable} \${geistMono.variable} antialiased\`}>
                 <NextIntlClientProvider>
                     <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>

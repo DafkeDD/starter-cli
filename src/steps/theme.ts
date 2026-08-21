@@ -207,12 +207,22 @@ function resolve(theme: Theme): 'light' | 'dark' {
     return theme
 }
 
-/** Zet de juiste class op <html>. Zelfde logica als server-side in de layout. */
+/**
+ * Zet de juiste class en het juiste attribuut op <html>. Zelfde logica als
+ * server-side in de layout.
+ *
+ * De class stuurt Tailwind's \`dark:\`-utilities aan, het attribuut stuurt de
+ * tokens van de custom UI aan. Bij 'system' zetten we geen van beide expliciet
+ * op donker: de CSS kijkt dan zelf naar prefers-color-scheme.
+ */
 function applyClass(theme: Theme): void {
     const root = document.documentElement
     root.classList.remove('dark', 'theme-system')
     if (theme === 'dark') root.classList.add('dark')
     else if (theme === 'system') root.classList.add('theme-system')
+
+    if (theme === 'system') root.removeAttribute('data-theme')
+    else root.setAttribute('data-theme', theme)
 }
 
 /**
@@ -315,4 +325,119 @@ export function setupTheme(target: string): void {
   write(path.join(src, "app", "globals.css"), GLOBALS_CSS);
   write(path.join(src, "components", "theme", "ThemeProvider.tsx"), THEME_PROVIDER);
   write(path.join(src, "components", "theme", "ThemeToggle.tsx"), THEME_TOGGLE);
+}
+
+/* ============================================================
+   VARIANT MET CUSTOM UI
+   ============================================================
+
+   projectx-ui brengt zijn eigen design tokens mee (--bg, --surface, --text,
+   --accent, ...) en schakelt tussen light en dark via het attribuut
+   [data-theme] op <html>. Onze layout zet dat attribuut naast de bestaande
+   .dark / .theme-system class, zodat beide systemen samen omschakelen:
+
+     - Tailwind's `dark:`-utilities        -> .dark / .theme-system
+     - de tokens van projectx-ui           -> [data-theme]
+
+   De @theme inline hieronder koppelt de Tailwind-kleurnamen aan de tokens van
+   projectx-ui. Zo blijven bestaande classes als `bg-card` of `text-muted-
+   foreground` werken, maar komen de kleuren voortaan uit de custom UI.
+*/
+function uiGlobalsCss(entry: string): string {
+  return `@import 'tailwindcss';
+
+/* De volledige stylesheet van de custom UI: tokens, basislaag en alle
+   component-CSS. Wordt aangevuld telkens je \`npx projectx-ui add\` draait. */
+@import '${entry}';
+
+/* ============================================================
+   DARK MODE (Tailwind 4)
+   .dark          = expliciet donker
+   .theme-system  = volg de systeemvoorkeur
+   ============================================================ */
+@custom-variant dark {
+    &:where(.dark, .dark *) {
+        @slot;
+    }
+    @media (prefers-color-scheme: dark) {
+        &:where(.theme-system, .theme-system *) {
+            @slot;
+        }
+    }
+}
+
+/* ============================================================
+   TAILWIND 4 MAPPING — tokens van de custom UI -> utility classes
+   Pas hier niets aan: de kleuren zelf staan in components/ui/tokens.css.
+   ============================================================ */
+@theme inline {
+    --font-sans: var(--font);
+    --font-mono: var(--mono);
+
+    --color-background: var(--bg);
+    --color-foreground: var(--text);
+
+    --color-card: var(--surface);
+    --color-card-foreground: var(--text);
+
+    --color-primary: var(--accent);
+    --color-primary-foreground: var(--accent-fg);
+
+    --color-secondary: var(--surface-3);
+    --color-secondary-foreground: var(--text);
+
+    --color-muted: var(--surface-2);
+    --color-muted-foreground: var(--text-2);
+
+    --color-accent: var(--accent-tint);
+    --color-accent-foreground: var(--accent-active);
+
+    --color-destructive: var(--red);
+    --color-destructive-foreground: var(--text-inv);
+
+    --color-border: var(--border);
+    --color-input: var(--border-strong);
+    --color-ring: var(--accent);
+
+    --radius-sm: var(--r-xs);
+    --radius-md: var(--r-sm);
+    --radius-lg: var(--r-md);
+    --radius-xl: var(--r-lg);
+}
+
+/* ============================================================
+   BASIS
+   Achtergrond en tekstkleur komen uit components/ui/base.css.
+   ============================================================ */
+html {
+    color-scheme: light;
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease;
+}
+
+html.dark {
+    color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+    html.theme-system {
+        color-scheme: dark;
+    }
+}
+
+:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+`;
+}
+
+/**
+ * Vervangt globals.css door de variant die de design tokens van de custom UI
+ * gebruikt. `entry` is het pad naar het CSS-verzamelbestand, relatief vanaf
+ * src/app/globals.css (bv. "../components/ui/ui.css").
+ */
+export function writeUiGlobals(target: string, entry: string): void {
+  write(path.join(target, "src", "app", "globals.css"), uiGlobalsCss(entry));
 }
