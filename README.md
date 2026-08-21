@@ -2,16 +2,19 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment zijn er vier vragen:
+Op dit moment zijn er vijf vragen:
 
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
    Tailwind CSS, ESLint, **next-intl**, **light/dark mode** en **Prettier**.
-2. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
+2. **Custom UI installeren?** — installeert `github:DafkeDD/projectx-ui` in de
+   frontend: de gedeelde layout en componenten, zodat elke app er hetzelfde
+   uitziet.
+3. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
    in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
-3. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
+4. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
    aansluiten op een bestaande, of niets.
-4. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
+5. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
    repo met die naam aan en pusht meteen.
 
 `frontend/` en `backend/` krijgen exact dezelfde Prettier-instellingen.
@@ -75,6 +78,31 @@ frontend/
 `create-next-app` draait met `--disable-git`, dus `frontend/` krijgt géén eigen
 `.git`. Anders zou het een genest repo worden en committeert je frontend niet
 mee in de projectrepo.
+
+---
+
+## Custom UI
+
+De vraag **"Wil je onze custom UI installeren?"** komt meteen na de
+frontend-vraag, en alleen als er een frontend is.
+
+Bij ja wordt `github:DafkeDD/projectx-ui` als dependency toegevoegd aan
+`frontend/`. Daar zitten de gedeelde layout en componenten in, zodat elke app
+dezelfde knoppen, dropdowns en schil heeft. Kleuren en logo stel je per app in
+via de design tokens in `globals.css`.
+
+Lukt de installatie niet - repo privé, geen git-toegang, geen netwerk - dan
+**stopt de CLI niet**. Je krijgt een waarschuwing met het commando om het later
+alsnog te doen, en de rest van je project is gewoon af:
+
+```
+!  Custom UI installeren is niet gelukt: ... (exit code 128).
+   Is de repo privé, log dan in met 'gh auth login' of zet een SSH-sleutel klaar.
+   Later alsnog installeren:
+     cd frontend && npm install github:DafkeDD/projectx-ui
+```
+
+De repo staat als `UI_PACKAGE` bovenaan `src/steps/ui.ts` - daar wijzig je hem.
 
 ---
 
@@ -244,7 +272,7 @@ rol-check erbij.
 
 ## GitHub
 
-Zeg je ja op vraag 4, dan vraagt de CLI hoe je het project wil noemen. Die naam
+Zeg je ja op vraag 5, dan vraagt de CLI hoe je het project wil noemen. Die naam
 wordt **ook de naam van de repo** op GitHub. Daarna vraagt hij nog of de repo
 privé (standaard) of openbaar moet zijn.
 
@@ -428,10 +456,11 @@ starter-cli/
    ├─ types.ts
    ├─ steps/
    │  ├─ frontend.ts     # vraag 1 + scaffold van Next.js
-   │  ├─ backend.ts      # vraag 2 + scaffold van Express of NestJS
-   │  ├─ github.ts       # vraag 4 + repo aanmaken en pushen
+   │  ├─ ui.ts           # vraag 2 + custom UI installeren
+   │  ├─ backend.ts      # vraag 3 + scaffold van Express of NestJS
+   │  ├─ github.ts       # vraag 5 + repo aanmaken en pushen
    │  ├─ i18n.ts         # next-intl (altijd, 4 talen, standaard en)
-   │  ├─ oidc.ts         # vraag 3 + de OIDC-server
+   │  ├─ oidc.ts         # vraag 4 + de OIDC-server
    │  ├─ theme.ts        # light/dark mode + design tokens
    │  └─ rules.ts        # PROJECT-RULES.md + AGENTS.md-blok
    └─ utils/
@@ -461,7 +490,7 @@ De CLI vraagt geen bevestiging meer — na je keuzes begint hij meteen.
 
 - Node.js 18.18 of hoger
 - Git (voor installatie vanaf GitHub)
-- GitHub CLI (`gh`), ingelogd — alleen als je vraag 4 met ja beantwoordt
+- GitHub CLI (`gh`), ingelogd — alleen als je vraag 5 met ja beantwoordt
 
 ## Licentie
 

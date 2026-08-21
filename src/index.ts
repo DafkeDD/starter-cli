@@ -4,6 +4,7 @@ import path from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { askFrontend, scaffoldFrontend, FRONTEND_DIR, FRONTEND_PORT } from "./steps/frontend.js";
+import { askCustomUi, scaffoldCustomUi } from "./steps/ui.js";
 import { askBackend, scaffoldBackend, BACKEND_DIR, BACKEND_PORT } from "./steps/backend.js";
 import {
   askOidc,
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
 
   // ---- Vragen -------------------------------------------------------------
   const frontend = await askFrontend();
+  const customUi = await askCustomUi(frontend);
   const backend = await askBackend();
   const oidc = await askOidc(defaultName);
   const github = await askGithub(defaultName);
@@ -73,7 +75,9 @@ async function main(): Promise<void> {
         `  standaard: ${DEFAULT_LOCALE}`,
       )}`,
       `${pc.dim("Thema   ")}  ${pc.cyan("light / dark / system")}${pc.dim("  cookie-based, geen flits")}`,
-      `${pc.dim("UI      ")}  ${pc.cyan("zelfgebouwde componenten")}${pc.dim("  geen shadcn/ui of andere library")}`,
+      `${pc.dim("UI      ")}  ${pc.cyan(
+        customUi ? "projectx-ui" : "zelfgebouwde componenten",
+      )}${pc.dim(customUi ? "  gedeelde layout en componenten" : "  geen shadcn/ui of andere library")}`,
       `${pc.dim("OIDC    ")}  ${pc.cyan(
         oidc.mode === "new"
           ? `nieuwe server${pc.dim(`  -> ./${OIDC_DIR} (poort ${OIDC_PORT})`)}`
@@ -94,6 +98,7 @@ async function main(): Promise<void> {
 
   // ---- Genereren ----------------------------------------------------------
   await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER);
+  await scaffoldCustomUi(customUi, frontend, projectDir, PACKAGE_MANAGER);
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER);
   await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER);
   await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER);
