@@ -18,7 +18,7 @@ import type { PackageManager } from "../types.js";
  */
 export type Database = "postgres" | "none";
 
-const DEFAULT_DB_PORT = 5432;
+const DEFAULT_DB_PORT = 55432;
 const LABEL = "PostgreSQL";
 
 export async function askDatabase(what: string): Promise<Database> {
@@ -96,7 +96,8 @@ function writeEnv(target: string, dbName: string, dbPort: number): void {
 
   const lines = (secret: string): string =>
     [
-      "# PostgreSQL",
+      "# PostgreSQL. De container luistert intern op 5432; dit is de poort op",
+      "# jouw machine. Bewust niet 5432 - die is op een ontwikkelmachine te druk.",
       "DB_HOST=127.0.0.1",
       `DB_PORT=${dbPort}`,
       "DB_USER=app",

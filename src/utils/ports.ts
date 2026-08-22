@@ -33,13 +33,25 @@ export interface Ports {
 
 export type PortName = keyof Ports;
 
-/** Waar we het liefst op uitkomen. Het eerste project krijgt precies dit. */
+/**
+ * Waar we het liefst op uitkomen. Het eerste project krijgt precies dit.
+ *
+ * De database publiceert BEWUST niet op 5432. Dat is de drukste poort op een
+ * ontwikkelmachine: een eerder geinstalleerde PostgreSQL, een container van een
+ * ander project, of - op Windows - een poortreeks die Hyper-V en WSL voor
+ * zichzelf reserveren en waar dan niets meer bij kan, terwijl je in geen enkele
+ * processenlijst iets ziet staan.
+ *
+ * In de container luistert PostgreSQL gewoon op 5432; alleen de poort op je
+ * eigen machine is anders. Verbind je met pgAdmin of DBeaver, gebruik dan de
+ * poort die in .env staat.
+ */
 export const DEFAULT_PORTS: Ports = {
   frontend: 3000,
   backend: 5000,
   oidc: 9000,
-  db: 5432,
-  oidcDb: 5433,
+  db: 55432,
+  oidcDb: 55433,
 };
 
 const REGISTRY_DIR = path.join(os.homedir(), ".starter-cli");

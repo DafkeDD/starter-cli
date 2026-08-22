@@ -254,7 +254,21 @@ Daarom kiest de CLI de poorten **bij het scaffolden** en zet die vast in de code
 |---|---|---|
 | frontend | 3000 | 3001 |
 | backend | 5000 | 5001 |
-| database backend | 5432 | 5434 |
+| database backend | 55432 | 55434 |
+
+De database publiceert bewust **niet** op 5432. Dat is de drukste poort op een
+ontwikkelmachine: een eerder geinstalleerde PostgreSQL, een container van een
+ander project, of - op Windows - een poortreeks die Hyper-V en WSL voor zichzelf
+reserveren. Dat laatste is gemeen, want dan bindt niets die poort meer terwijl
+`netstat` niets toont. Controleren kan met:
+
+```
+netsh int ipv4 show excludedportrange protocol=tcp
+```
+
+In de container luistert PostgreSQL gewoon op 5432; alleen de poort op je eigen
+machine is anders. Verbind je met pgAdmin of DBeaver, neem dan de poort uit
+`.env`.
 
 **De OIDC-hub is de uitzondering.** Die draait er maar een, gedeeld door al je
 apps, en blijft dus gewoon op 9000. Een project claimt alleen een hub-poort als
