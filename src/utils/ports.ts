@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
 
 /**
  * Poorten kiezen zodat je meerdere projecten naast elkaar kan draaien.
@@ -54,8 +58,24 @@ const MAX_STEPS = 100;
  */
 type Registry = Record<string, Partial<Ports>>;
 
-/** Is deze poort op dit moment vrij? */
-function isFree(port: number): Promise<boolean> {
+/**
+ * Is deze poort vrij?
+ *
+ * Twee controles, want een ervan alleen is niet genoeg:
+ *
+ *  - Kunnen we hem zelf openen? Vangt het gewone geval.
+ *  - Antwoordt er iets als we verbinden? Vangt het geval waar iets anders al
+ *    luistert maar het openen tóch lukt. Dat kan gebeuren met poorten die door
+ *    Docker Desktop worden doorgegeven: die worden op een andere manier
+ *    vastgehouden dan door een gewoon proces.
+ */
+async function isFree(port: number): Promise<boolean> {
+  if (await somethingAnswers(port)) return false;
+  return canBind(port);
+}
+
+/** Kunnen we zelf op deze poort gaan luisteren? */
+function canBind(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once("error", () => resolve(false));
@@ -64,6 +84,63 @@ function isFree(port: number): Promise<boolean> {
     });
     server.listen(port, "0.0.0.0");
   });
+}
+
+/** Neemt iets de verbinding aan op deze poort? */
+function somethingAnswers(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    const done = (answered: boolean) => {
+      socket.destroy();
+      resolve(answered);
+    };
+
+    socket.setTimeout(400);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+
+/**
+ * Host-poorten die Docker al voor zichzelf heeft opgeeist.
+ *
+ * Ook van GESTOPTE containers, en dat is het punt: de gegenereerde compose
+ * gebruikt `restart: unless-stopped`, dus die containers komen vanzelf terug
+ * zodra Docker Desktop start. Stond zo'n container even uit toen jij
+ * scaffoldde, dan leek de poort vrij en botste je er later alsnog op met
+ * "port is already allocated".
+ *
+ * Geen Docker geinstalleerd? Dan levert dit gewoon niets op.
+ */
+async function dockerClaimedPorts(): Promise<Set<number>> {
+  const claimed = new Set<number>();
+  const options = { shell: process.platform === "win32", timeout: 10000 };
+
+  try {
+    const { stdout: ids } = await run("docker", ["ps", "-a", "--format", "{{.ID}}"], options);
+    const containers = ids.split(/\r?\n/).filter(Boolean);
+    if (containers.length === 0) return claimed;
+
+    const { stdout } = await run(
+      "docker",
+      [
+        "inspect",
+        "--format",
+        "{{range $port, $binding := .HostConfig.PortBindings}}{{range $binding}}{{.HostPort}} {{end}}{{end}}",
+        ...containers,
+      ],
+      options,
+    );
+
+    for (const match of stdout.matchAll(/\d+/g)) {
+      claimed.add(Number(match[0]));
+    }
+  } catch {
+    // Docker draait niet of staat er niet: dan is er ook niets te claimen.
+  }
+
+  return claimed;
 }
 
 /** Leest het register. Stuk of afwezig? Dan beginnen we gewoon leeg. */
@@ -98,8 +175,8 @@ export async function resolvePorts(projectDir: string, needed: PortName[]): Prom
     if (dir !== projectDir && !fs.existsSync(dir)) delete registry[dir];
   }
 
-  // Alles wat andere projecten al claimen.
-  const claimed = new Set<number>();
+  // Alles wat andere projecten al claimen, plus wat Docker al vastheeft.
+  const claimed = await dockerClaimedPorts();
   for (const [dir, ports] of Object.entries(registry)) {
     if (dir === projectDir) continue;
     for (const port of Object.values(ports)) claimed.add(port);

@@ -279,10 +279,23 @@ omgevingsvariabele en niet uit een `.env`-bestand.
 
 ### Hoe de keuze tot stand komt
 
-Alleen kijken of een poort nu vrij is, is niet genoeg: staat project 1 even
-stil, dan lijkt 5000 vrij en krijgt project 2 hem alsnog. De CLI houdt daarom
-ook bij wat hij eerder heeft uitgedeeld, in `~/.starter-cli/ports.json` - en
-alleen de poorten die een project echt gebruikt komen daarin terecht.
+Alleen kijken of een poort nu vrij is, is niet genoeg. De CLI kijkt daarom naar
+drie dingen:
+
+1. **Kan hij de poort zelf openen?** Het gewone geval.
+2. **Antwoordt er iets als hij verbindt?** Vangt het geval waarin iets anders al
+   luistert maar het openen tóch lukt - dat kan bij poorten die Docker Desktop
+   doorgeeft, want die worden anders vastgehouden dan door een gewoon proces.
+3. **Wat heeft Docker al opgeeist?** Via `docker inspect` op alle containers,
+   ook de **gestopte**. Dat laatste is essentieel: de gegenereerde compose
+   gebruikt `restart: unless-stopped`, dus zo'n container komt vanzelf terug
+   zodra Docker Desktop start. Stond hij even uit toen je scaffoldde, dan leek
+   de poort vrij en botste je er later alsnog op met
+   `Bind for 0.0.0.0:5432 failed: port is already allocated`.
+
+Daarbovenop houdt de CLI bij wat hij eerder heeft uitgedeeld, in
+`~/.starter-cli/ports.json` - en alleen de poorten die een project echt gebruikt
+komen daarin terecht. Heb je geen Docker, dan valt stap 3 gewoon weg.
 
 Drie gedragingen die daaruit volgen:
 
