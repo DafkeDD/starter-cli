@@ -6,6 +6,8 @@ import { addDeps, addDevDeps } from "../utils/install.js";
 import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
 import { copyTemplate } from "../utils/template.js";
+import { mergeEnv } from "../utils/env.js";
+import { scaffoldDatabase, type Database } from "./database.js";
 import { FRONTEND_DIR, FRONTEND_PORT } from "./frontend.js";
 import type { Frontend } from "./frontend.js";
 import { BACKEND_DIR, BACKEND_PORT } from "./backend.js";
@@ -16,6 +18,7 @@ import type { PackageManager } from "../types.js";
 export const OIDC_DIR = "oidc";
 
 /** Poort van de OIDC-server, naast frontend (3000) en backend (5000). */
+/** Standaardpoort van de hub. De CLI kan een andere kiezen; zie utils/ports.ts. */
 export const OIDC_PORT = 9000;
 
 export type OidcMode = "new" | "existing" | "none";
@@ -140,19 +143,26 @@ export async function scaffoldOidcServer(
   projectDir: string,
   projectName: string,
   pm: PackageManager,
+  database: Database = "none",
+  ports: { oidc: number; backend: number; frontend: number; db: number } = {
+    oidc: OIDC_PORT,
+    backend: BACKEND_PORT,
+    frontend: FRONTEND_PORT,
+    db: 5433,
+  },
 ): Promise<void> {
   if (choice.mode !== "new") return;
 
   const target = path.join(projectDir, OIDC_DIR);
-  p.log.step(`OIDC-server opzetten in ./${OIDC_DIR} (poort ${OIDC_PORT}) ...`);
+  p.log.step(`OIDC-server opzetten in ./${OIDC_DIR} (poort ${ports.oidc}) ...`);
 
   await withProgress(
     "OIDC-server installeren",
     async (update) => {
       copyTemplate("oidc-server", target, {
-        OIDC_PORT,
-        BACKEND_PORT,
-        FRONTEND_PORT,
+        OIDC_PORT: ports.oidc,
+        BACKEND_PORT: ports.backend,
+        FRONTEND_PORT: ports.frontend,
         PROJECT_NAME: projectName,
         CLIENT_ID: choice.clientId,
         CLIENT_SECRET: choice.clientSecret,
@@ -163,8 +173,10 @@ export async function scaffoldOidcServer(
       await addDeps(pm, target, [
         "oidc-provider@latest",
         "express@latest",
-        "bcryptjs@latest",
         "jose@latest",
+        // Alleen nodig voor de bestandsvariant; de databasevariant hasht met
+        // scrypt uit node:crypto en heeft dus geen extra pakket nodig.
+        ...(database === "none" ? ["bcryptjs@latest"] : []),
       ]);
       await addDevDeps(pm, target, [
         "typescript@latest",
@@ -174,13 +186,46 @@ export async function scaffoldOidcServer(
         "@types/oidc-provider@latest",
       ]);
 
+      // De hub leest PORT en OIDC_ISSUER uit .env, dus hij heeft altijd een
+      // env-lader nodig - ook zonder database.
+      fs.writeFileSync(path.join(target, "src", "env.ts"), HUB_ENV_LOADER, "utf8");
+      prependEnvImport(path.join(target, "src", "index.ts"));
+      mergeEnv(
+        path.join(target, ".env"),
+        [
+          "# Poort van de hub. In Docker zet compose deze variabele.",
+          `PORT=${ports.oidc}`,
+          "",
+          "# Moet exact de URL zijn die ook de browser gebruikt - anders klopt de",
+          "# iss in het id_token niet en faalt de validatie bij de clients.",
+          `OIDC_ISSUER=http://localhost:${ports.oidc}`,
+          "",
+        ].join("\n"),
+      );
+
+      if (database !== "none") {
+        // Zet src/db/ neer, installeert de drivers en schrijft .env.
+        // backend "none": de hub is geen Express- of Nest-scaffold van ons, hij
+        // heeft zijn eigen index.ts al.
+        // Eigen databasenaam: de hub deelt niets met de backend.
+        await scaffoldDatabase(database, target, "none", pm, update, "oidc", ports.db, ports.oidc);
+
+        update("OIDC-opslag naar de database verhuizen");
+        // Overschrijft adapter.ts en users.ts met de databaseversies en zet de
+        // OIDC-migratie klaar. De demo-migratie van de backend hoort hier niet.
+        fs.rmSync(path.join(target, "src", "db", "migrations", "001_init.ts"), { force: true });
+        copyTemplate("oidc-db", target, {});
+      }
+
       update("Prettier installeren en formatteren");
       await setupPrettier(pm, target, { tailwind: false });
     },
     45000,
   );
 
-  p.log.success(`OIDC-server aangemaakt in ./${OIDC_DIR}.`);
+  p.log.success(
+    `OIDC-server aangemaakt in ./${OIDC_DIR}${database === "none" ? "" : ` (opslag: ${database})`}.`,
+  );
 }
 
 /** Maakt van een projectnaam een geldige client_id. */
@@ -203,6 +248,10 @@ export async function scaffoldOidcClient(
   backend: Backend,
   projectDir: string,
   pm: PackageManager,
+  ports: { backend: number; frontend: number } = {
+    backend: BACKEND_PORT,
+    frontend: FRONTEND_PORT,
+  },
 ): Promise<void> {
   if (choice.mode === "none") return;
   if (backend === "none") {
@@ -215,8 +264,8 @@ export async function scaffoldOidcClient(
     ISSUER: choice.issuer,
     CLIENT_ID: choice.clientId,
     CLIENT_SECRET: choice.clientSecret,
-    BACKEND_PORT,
-    FRONTEND_PORT,
+    BACKEND_PORT: ports.backend,
+    FRONTEND_PORT: ports.frontend,
   };
 
   p.log.step(
@@ -236,7 +285,7 @@ export async function scaffoldOidcClient(
         patchNestModule(target);
       }
 
-      writeEnv(target, choice);
+      writeEnv(target, choice, ports);
       loadEnvInCode(target, backend);
 
       await addDeps(pm, target, ["openid-client@latest", "cookie-session@latest", "cors@latest"]);
@@ -252,25 +301,30 @@ export async function scaffoldOidcClient(
 }
 
 /** Schrijft .env en .env.example met de OIDC-gegevens. */
-function writeEnv(target: string, choice: OidcChoice): void {
+function writeEnv(
+  target: string,
+  choice: OidcChoice,
+  ports: { backend: number; frontend: number },
+): void {
   const lines = [
     "# Verbinding met de OIDC-server",
     `OIDC_ISSUER=${choice.issuer}`,
     `OIDC_CLIENT_ID=${choice.clientId}`,
     `OIDC_CLIENT_SECRET=${choice.clientSecret}`,
-    `OIDC_REDIRECT_URI=http://localhost:${BACKEND_PORT}/auth/callback`,
-    `FRONTEND_URL=http://localhost:${FRONTEND_PORT}`,
+    `OIDC_REDIRECT_URI=http://localhost:${ports.backend}/auth/callback`,
+    `FRONTEND_URL=http://localhost:${ports.frontend}`,
     "",
     "# Ondertekent de sessiecookie van deze app. Verzin een eigen waarde.",
     `SESSION_SECRET=${crypto.randomBytes(24).toString("hex")}`,
     "",
   ].join("\n");
 
-  fs.writeFileSync(path.join(target, ".env"), lines, "utf8");
-  fs.writeFileSync(
+  // Aanvullen, niet overschrijven: de databasestap heeft hier mogelijk al
+  // DB_-sleutels neergezet.
+  mergeEnv(path.join(target, ".env"), lines);
+  mergeEnv(
     path.join(target, ".env.example"),
     lines.replace(/^(OIDC_CLIENT_SECRET|SESSION_SECRET)=.*$/gm, "$1="),
-    "utf8",
   );
 }
 
@@ -524,6 +578,7 @@ export function scaffoldOidcFrontend(
   choice: OidcChoice,
   frontend: Frontend,
   projectDir: string,
+  backendPort: number = BACKEND_PORT,
 ): void {
   if (choice.mode === "none") return;
   if (frontend === "none") {
@@ -532,12 +587,12 @@ export function scaffoldOidcFrontend(
   }
 
   const target = path.join(projectDir, FRONTEND_DIR);
-  const vars = { BACKEND_URL: `http://localhost:${BACKEND_PORT}` };
+  const vars = { BACKEND_URL: `http://localhost:${backendPort}` };
 
   copyTemplate("oidc-frontend", target, vars);
   if (choice.isAdminPanel) copyTemplate("oidc-frontend-admin", target, vars);
 
-  writeFrontendEnv(target);
+  writeFrontendEnv(target, backendPort);
   mergeMessages(target, choice.isAdminPanel);
   patchProxy(target, choice.isAdminPanel);
 
@@ -547,13 +602,13 @@ export function scaffoldOidcFrontend(
 }
 
 /** De frontend moet weten waar de backend draait. */
-function writeFrontendEnv(target: string): void {
+function writeFrontendEnv(target: string, backendPort: number): void {
   const file = path.join(target, ".env.local");
   const lines = [
     "# Waar de backend draait. Server-side gebruikt BACKEND_URL,",
     "# client components gebruiken NEXT_PUBLIC_BACKEND_URL.",
-    `BACKEND_URL=http://localhost:${BACKEND_PORT}`,
-    `NEXT_PUBLIC_BACKEND_URL=http://localhost:${BACKEND_PORT}`,
+    `BACKEND_URL=http://localhost:${backendPort}`,
+    `NEXT_PUBLIC_BACKEND_URL=http://localhost:${backendPort}`,
     "",
   ].join("\n");
 
@@ -633,3 +688,31 @@ function patchProxy(target: string, includeAdmin: boolean): void {
 
   fs.writeFileSync(file, src, "utf8");
 }
+
+/**
+ * Zet `import './env.js'` als allereerste regel van de hub.
+ *
+ * Moet echt de eerste import zijn: ES-modules evalueren alle imports voordat de
+ * code eronder draait, dus een process.loadEnvFile() halverwege komt te laat en
+ * de database verbindt dan met de standaardwaarden.
+ */
+function prependEnvImport(file: string): void {
+  if (!fs.existsSync(file)) return;
+
+  const source = fs.readFileSync(file, "utf8");
+  if (source.includes("./env.js")) return;
+
+  const comment = "// Leest .env in. Moet de eerste import blijven - zie src/env.ts.";
+  fs.writeFileSync(file, `${comment}\nimport './env.js'\n\n${source}`, "utf8");
+}
+
+/** Zelfde env-lader als in de backend; zie de uitleg daar. */
+const HUB_ENV_LOADER = `try {
+    process.loadEnvFile()
+} catch {
+    // Geen .env aanwezig - dan gelden de terugvalwaarden in de code.
+}
+
+// Maakt van dit bestand een module in plaats van een globaal script.
+export {}
+`;

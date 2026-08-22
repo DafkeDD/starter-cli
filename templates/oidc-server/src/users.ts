@@ -26,20 +26,20 @@ function persist(): void {
     save('users', Object.fromEntries(users))
 }
 
-export function all(): User[] {
+export async function all(): Promise<User[]> {
     return [...users.values()]
 }
 
-export function findByEmail(email: string): User | undefined {
-    return all().find(u => u.email === email.toLowerCase())
+export async function findByEmail(email: string): Promise<User | undefined> {
+    return [...users.values()].find(u => u.email === email.toLowerCase())
 }
 
-export function findById(id: string): User | undefined {
+export async function findById(id: string): Promise<User | undefined> {
     return users.get(id)
 }
 
 export async function register(email: string, name: string, password: string): Promise<User> {
-    if (findByEmail(email)) throw new Error('Dit e-mailadres is al geregistreerd.')
+    if (await findByEmail(email)) throw new Error('Dit e-mailadres is al geregistreerd.')
     const id = `u${users.size + 1}`
     const user: User = {
         id,
@@ -57,7 +57,7 @@ export async function register(email: string, name: string, password: string): P
 
 /** Geeft de gebruiker terug, of een reden waarom inloggen niet mag. */
 export async function verify(email: string, password: string): Promise<{ user?: User; error?: string }> {
-    const user = findByEmail(email)
+    const user = await findByEmail(email)
     if (!user) return { error: 'Onbekend e-mailadres of wachtwoord.' }
     if (!(await bcrypt.compare(password, user.passwordHash))) {
         return { error: 'Onbekend e-mailadres of wachtwoord.' }
@@ -67,7 +67,7 @@ export async function verify(email: string, password: string): Promise<{ user?: 
 }
 
 /** Blokkeert of deblokkeert een gebruiker. Een admin kan zichzelf niet blokkeren. */
-export function setBlocked(id: string, blocked: boolean): void {
+export async function setBlocked(id: string, blocked: boolean): Promise<void> {
     const user = users.get(id)
     if (!user) return
     user.blocked = blocked

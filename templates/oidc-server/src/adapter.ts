@@ -36,7 +36,7 @@ function alive(entry: Entry | undefined): AdapterPayload | undefined {
     return entry.payload
 }
 
-export class FileAdapter implements Adapter {
+export class StorageAdapter implements Adapter {
     constructor(private readonly name: string) {}
 
     private key(id: string): string {
@@ -94,4 +94,15 @@ export class FileAdapter implements Adapter {
         delete grantIndex[grantId]
         persist()
     }
+}
+
+/**
+ * Wordt aangeroepen voor de Provider wordt aangemaakt.
+ *
+ * Deze bestandsvariant hoeft niets te doen. Kies je in de CLI wel een database,
+ * dan vervangt die versie dit bestand en zet initStorage de verbinding op. Zo
+ * hoeft index.ts niet te weten waar de gegevens staan.
+ */
+export async function initStorage(): Promise<void> {
+    // Niets te doen: storage.ts schrijft rechtstreeks naar een JSON-bestand.
 }

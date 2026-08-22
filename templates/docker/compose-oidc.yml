@@ -1,0 +1,30 @@
+    oidc:
+        build:
+            context: ./oidc
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        environment:
+            PORT: {{OIDC_PORT}}
+            OIDC_ISSUER: http://oidc.localhost:{{OIDC_PORT}}
+            # Binnen het netwerk heet de database gewoon "db".
+            DB_HOST: db
+            DB_PORT: 5432
+            DB_USER: ${DB_USER}
+            DB_PASSWORD: ${DB_PASSWORD}
+            DB_NAME: ${OIDC_DB_NAME}
+            DB_SSL: "false"
+        ports:
+            - "{{OIDC_PORT}}:{{OIDC_PORT}}"
+        volumes:
+            - ./oidc:/app
+            # Anonieme volumes: houdt de node_modules uit het image overeind,
+            # zodat de mount hierboven ze niet wegduwt.
+            - /app/node_modules
+        networks:
+            default:
+                aliases:
+                    - oidc.localhost
+

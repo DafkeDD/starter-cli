@@ -2,7 +2,7 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment zijn er vijf vragen:
+Op dit moment zijn er zeven vragen:
 
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
@@ -12,9 +12,13 @@ Op dit moment zijn er vijf vragen:
    tokens over in `globals.css`. Zo ziet elke app er hetzelfde uit.
 3. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
    in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
-4. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
+4. **Welke database voor de backend?** — PostgreSQL of geen. Eigen datalaag,
+   geen ORM.
+5. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
    aansluiten op een bestaande, of niets.
-5. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
+6. **Welke database voor de OIDC-hub?** — alleen bij een nieuwe hub. Mag een
+   aparte database zijn, los van die van de backend.
+7. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
    repo met die naam aan en pusht meteen.
 
 `frontend/` en `backend/` krijgen exact dezelfde Prettier-instellingen.
@@ -36,10 +40,13 @@ Deze liggen vast en zijn bewust geen vraag in de CLI:
 2. **UI-componenten worden altijd zelf gebouwd** — niets uit shadcn/ui, Radix,
    MUI, Chakra, Ant Design, HeadlessUI, DaisyUI of NextUI. Iconen uitsluitend
    uit `react-icons`, nooit `lucide-react`.
-3. **Light/dark mode, altijd** — class-based, voorkeur in een cookie, met een
+3. **Geen ORM** - de datalaag is zelf geschreven: de kale `pg`-driver met een
+   dunne eigen laag erboven. Geen Prisma, TypeORM of Drizzle.
+4. **Light/dark mode, altijd** — class-based, voorkeur in een cookie, met een
    toggle in de UI.
-4. **De backend draait altijd op poort 5000** — hard gezet in de code, geen
-   env-override.
+5. **De poort komt uit `PORT` in `.env`**, met een terugval in de code —
+   standaard 5000 voor de backend. Draait er al een ander project, dan kiest de
+   CLI bij het scaffolden 5001. Zo werkt hetzelfde project ook in Docker.
 
 Ze worden ook in het gegenereerde project vastgelegd, in `PROJECT-RULES.md` en
 als `project-rules`-blok in `AGENTS.md` — die Claude Code automatisch meeleest
@@ -78,6 +85,298 @@ frontend/
 `create-next-app` draait met `--disable-git`, dus `frontend/` krijgt géén eigen
 `.git`. Anders zou het een genest repo worden en committeert je frontend niet
 mee in de projectrepo.
+
+---
+
+## Database
+
+De vraag komt twee keer: een keer voor de backend, een keer voor de OIDC-hub.
+Die twee mogen op een aparte database draaien.
+
+**PostgreSQL**, en alleen PostgreSQL. Geen ORM - de laag is zelf geschreven, met
+de officiele `pg`-driver eronder. Doordat er maar een database is, is er ook geen
+dialect-abstractie nodig: de SQL in je migraties is de SQL die echt draait.
+
+```
+src/db/
+  types.ts        Db-interface, DbConfig, ColumnSpec
+  sql.ts          de sql``-tag, id(), raw(), list(), join(), quote()
+  index.ts        connect(), readConfig(), en de Db zelf
+  schema.ts       TableBuilder voor de migraties
+  migrate.ts      de migratieloper (up / down / status)
+  migrations/     001_init.ts
+```
+
+Zes bestanden, een dependency (`pg`). Wil je er later een tweede database bij,
+dan is `Db` in `types.ts` het aangrijpingspunt: je schrijft een tweede
+implementatie en de rest van je code blijft ongewijzigd.
+
+### Queries
+
+```ts
+import { connect, sql, id, list } from './db/index.js'
+
+const db = await connect()
+
+// Alles met ${...} wordt een parameter, nooit tekst in de query.
+// SQL-injectie is daarmee uitgesloten, ook als de waarde van een gebruiker komt.
+const user = await db.one(sql`select * from users where email = ${email}`)
+
+// Tabel- en kolomnamen via id(): die worden gequote.
+const rows = await db.query(sql`select * from ${id('users')} where ${id('id')} in ${list([1, 2, 3])}`)
+
+// insert geeft de volledige nieuwe rij terug, via RETURNING.
+const nieuw = await db.insert('users', { email, password_hash: hash })
+
+await db.transaction(async tx => {
+    await tx.execute(sql`update users set name = ${naam} where id = ${userId}`)
+})
+```
+
+`one()` gooit als er meer dan een rij terugkomt, `only()` gooit ook als er geen
+is. Zo merk je een verkeerde where meteen, in plaats van stilletjes de eerste
+rij te krijgen.
+
+### Migraties
+
+```ts
+export async function up(s: Schema): Promise<void> {
+    await s.createTable('users', t => {
+        t.id()                          // bigserial primary key
+        t.string('email', 255).unique() // varchar(255) not null + unique constraint
+        t.bool('active').default(true)  // boolean not null default true
+        t.timestamps()                  // created_at + updated_at, timestamptz default now()
+    })
+}
+
+export async function down(s: Schema): Promise<void> {
+    await s.dropTable('users')
+}
+```
+
+Past iets niet in de bouwer - een view, een trigger, een index met een `where` -
+dan schrijf je het met `s.raw('...')` als gewone SQL.
+
+```
+npm run db:migrate           openstaande migraties uitvoeren
+npm run db:migrate:status    tonen wat er open staat
+npm run db:rollback          de laatste terugdraaien
+```
+
+Na een build wijs je naar de gecompileerde map:
+
+```
+DB_MIGRATIONS_DIR=dist/db/migrations node dist/db/migrate.js up
+```
+
+De naam in `_migrations` is de bestandsnaam **zonder** extensie, zodat
+ontwikkeling (`001_init.ts`) en productie (`001_init.js`) dezelfde migratie zien.
+
+PostgreSQL doet ook DDL binnen een transactie: mislukt een migratie halverwege,
+dan is er niets gebeurd.
+
+### Lokaal draaien
+
+```
+cd backend
+docker compose up -d
+npm run db:migrate
+```
+
+`.env` krijgt een gegenereerd wachtwoord. `.env` staat in `.gitignore`,
+`.env.example` niet. Schrijven meerdere stappen in dezelfde `.env` - de database
+en daarna de OIDC-client - dan worden de sleutels samengevoegd, niet overschreven.
+
+### Twee dingen om te weten
+
+1. **PostgreSQL geeft `bigint` terug als string**, niet als number - anders zou
+   je boven 2^53 precisie verliezen. Je `id` komt dus binnen als `"1"`.
+2. **De pool vangt zijn eigen verbindingsfouten op.** Gaat de database onderuit
+   terwijl er verbindingen inactief staan, dan stuurt `pg` een `error`-event; zonder
+   luisteraar stopt Node het hele proces. Die luisteraar staat in `connect()`, dus
+   je server blijft draaien en verbindt vanzelf opnieuw.
+
+### Wat er getest is
+
+Tegen een echte PostgreSQL 16, met Express en met NestJS:
+
+- migraties `up`, `down` en `status`, in ontwikkeling en na een build
+- insert met `returning`, `one()`, `only()`, `in (...)`, lege `in`-lijst, paginatie
+- transactie met commit en met rollback na een fout
+- unieke sleutels, foreign keys, `addColumn` / `dropColumn`
+- een injectiepoging (`' or 1=1 --` levert 0 rijen)
+- `/health` gaat naar 503 als de database wegvalt, terug naar 200 zodra hij er
+  weer is, en het proces blijft in beide gevallen leven
+
+---
+
+## Poorten en meerdere projecten
+
+De poort van een gegenereerde app komt uit `PORT` in `.env`, met een terugval in
+de code. De CLI kiest de waarde bij het scaffolden.
+
+Maar draai je twee projecten naast elkaar, dan botsen ze: de backend valt om met
+`EADDRINUSE`, en `docker compose up` weigert de database omdat de poort al bezet
+is. Next.js schuift zelf op naar 3001, maar dan wijzen `FRONTEND_URL` en de
+`post_logout_redirect_uris` van de hub nog naar 3000 en breekt je uitlog-redirect.
+
+Daarom kiest de CLI de poorten **bij het scaffolden** en zet die vast in de code:
+
+| | eerste project | tweede project |
+|---|---|---|
+| frontend | 3000 | 3001 |
+| backend | 5000 | 5001 |
+| database backend | 5432 | 5434 |
+
+**De OIDC-hub is de uitzondering.** Die draait er maar een, gedeeld door al je
+apps, en blijft dus gewoon op 9000. Een project claimt alleen een hub-poort als
+het zelf een nieuwe hub opzet; kies je "aansluiten op een bestaande", dan
+reserveert het niets - anders zou het volgende project 9001 krijgen voor een hub
+die helemaal niet bestaat.
+
+```
+project A  nieuwe hub        frontend 3000  backend 5000  db 5432  hub 9000  hub-db 5433
+project B  sluit aan op A    frontend 3001  backend 5001  db 5434
+project C  sluit aan op A    frontend 3002  backend 5002  db 5435
+```
+
+Dat werkt in beide volgordes: zet je eerst twee aansluitende projecten op en
+daarna pas de hub, dan krijgt die hub nog steeds 9000.
+
+Alle afgeleide URL's worden meteen kloppend gegenereerd: `OIDC_REDIRECT_URI`,
+`OIDC_ISSUER`, `FRONTEND_URL`, `BACKEND_URL`, de CORS-instelling en de
+`redirect_uris` in `clients.ts`. De frontend krijgt `next dev -p <poort>` in
+zijn dev-script - Next.js leest `PORT` namelijk alleen als echte
+omgevingsvariabele en niet uit een `.env`-bestand.
+
+### Hoe de keuze tot stand komt
+
+Alleen kijken of een poort nu vrij is, is niet genoeg: staat project 1 even
+stil, dan lijkt 5000 vrij en krijgt project 2 hem alsnog. De CLI houdt daarom
+ook bij wat hij eerder heeft uitgedeeld, in `~/.starter-cli/ports.json` - en
+alleen de poorten die een project echt gebruikt komen daarin terecht.
+
+Drie gedragingen die daaruit volgen:
+
+- **Dezelfde map opnieuw scaffolden houdt dezelfde poorten.** Anders zouden de
+  URL's in `.env` en in de OIDC-client niet meer kloppen.
+- **Een project dat je verwijdert geeft zijn poorten terug**, zodat de nummers
+  niet eindeloos oplopen.
+- **Kan de CLI het bestand niet schrijven** - geen rechten in je thuismap - dan
+  stopt hij niet; hij onthoudt het dan alleen niet tussen projecten door.
+
+Wil je andere startwaarden, pas dan `DEFAULT_PORTS` aan in `src/utils/ports.ts`.
+
+### Wat er getest is
+
+Twee volledige projecten naast elkaar: vier apps tegelijk (twee backends, twee
+hubs) op 5001, 5002, 9000 en 9001, elk met een eigen database. Beide
+OIDC-flows compleet doorlopen - registreren, code inwisselen, `/me` - waarbij
+elke hub keurig naar zijn eigen backend terugstuurt. Plus het opnieuw scaffolden
+van een bestaande map (poorten blijven gelijk) en het vrijgeven van poorten van
+een verwijderd project. En het hub-scenario in beide volgordes: aansluitende
+projecten claimen geen 9000, en een hub die later wordt opgezet krijgt hem
+alsnog.
+
+---
+
+## Docker
+
+Naast de npm-manier komt er een Dockerfile per app en een `docker-compose.yml`
+in de hoofdmap. Beide manieren blijven werken; Docker is een tweede manier om
+hetzelfde project te draaien, geen vervanging.
+
+```
+docker compose up -d --build
+docker compose exec backend npm run db:migrate
+docker compose exec oidc npm run db:migrate
+```
+
+Stoppen met `docker compose down`, alles wissen met `docker compose down -v`.
+
+### De valkuil die dit oplost: de OIDC-issuer
+
+De issuer van een OIDC-server moet voor **iedereen** dezelfde URL zijn. Je
+browser praat met de hub, en je backend praat er server-to-server mee. Gebruiken
+die twee een andere naam, dan komt de `iss` in het id_token niet overeen met wat
+de client verwacht en faalt de validatie - met een foutmelding die nergens naar
+wijst.
+
+- `localhost` werkt niet: binnen een container wijst dat naar de container zelf.
+- De servicenaam `oidc` werkt niet: die kent je browser niet.
+
+Daarom draait de hub op **`oidc.localhost`**. Browsers lossen elke naam die op
+`.localhost` eindigt zelf op naar 127.0.0.1 (RFC 6761), en binnen het
+compose-netwerk verwijst een alias die naam naar de hub-container. Dezelfde URL
+aan beide kanten, dus de validatie klopt.
+
+`oidc-provider` bouwt zijn endpoints op basis van de host waarmee je binnenkomt,
+maar houdt de issuer vast. Je browser krijgt dus `http://localhost:9000/auth` en
+je backend `http://oidc.localhost:9000/auth`, met in beide gevallen dezelfde
+issuer. Precies wat je wil.
+
+### Twee databases uit een postgres-image
+
+Het `postgres`-image maakt maar een database aan. De hub heeft een eigen
+database, dus `docker/init-oidc-db.sh` maakt er bij de eerste start een tweede
+bij. Zonder dat script start de hub niet op: `database "oidc" does not exist`.
+
+Dat script draait alleen als het volume nog leeg is. Bestaat de database al, dan
+gebeurt er niets.
+
+### PORT komt uit .env
+
+De poort van een app komt uit `PORT` in `.env`, met een terugval in de code.
+Binnen Docker zet compose die variabele, buiten Docker leest de app zijn `.env`.
+Een app, twee manieren van draaien, geen aparte code.
+
+**Uitzondering: de frontend.** Next.js leest `PORT` alleen als echte
+omgevingsvariabele, *niet* uit een `.env`-bestand - dat is uitgeprobeerd. Daarom
+staat de poort van de frontend in `package.json` als `next dev -p <poort>`, met
+dezelfde waarde die compose meegeeft.
+
+### Wat er getest is
+
+Dit is echt gedraaid, niet alleen geschreven:
+
+- `docker compose up -d` vanaf een leeg volume: database gezond, hub en backend
+  op, tweede database automatisch aangemaakt
+- migraties uitgevoerd van binnen de containers
+- discovery vanuit de backend-container naar `oidc.localhost` met kloppende
+  issuer-validatie door `openid-client`
+- de volledige SSO-flow van buitenaf: backend -> hub -> registreren -> terug naar
+  de callback -> `/auth/me` geeft de ingelogde gebruiker
+
+Een kanttekening bij die tests: Docker Hub is in mijn omgeving geblokkeerd, dus
+ik heb `node:22-alpine` en `postgres:17-alpine` vervangen door images die ik
+lokaal heb samengesteld uit dezelfde Node- en PostgreSQL-versies. De bedrading -
+netwerk, servicenamen, poorten, issuer, initscript, migraties - is dus met echte
+containers getest; wat ik niet heb kunnen testen is het binnenhalen van die twee
+officiele images en de `npm install` die daarin gebeurt.
+
+---
+
+## OIDC-hub op een database
+
+Kies je een database voor de hub, dan verandert er meer dan de opslag:
+
+- De waarschuwing `a quick start development-only in-memory adapter is used`
+  verdwijnt. Sessies en tokens overleven een herstart, en twee exemplaren van de
+  hub achter een loadbalancer delen dezelfde staat.
+- Wachtwoorden worden gehasht met **scrypt uit `node:crypto`** in plaats van
+  `bcryptjs`. Een dependency minder.
+- Verlopen rijen worden bij het opstarten en daarna elk uur opgeruimd.
+
+Drie tabellen: `oidc_payloads` (alles wat oidc-provider bewaart, met `type` als
+onderscheid), `users` en `clients`.
+
+Getest tegen PostgreSQL: registreren, de volledige authorization-code-flow met
+PKCE, inloggen met een fout wachtwoord, een geblokkeerd account, een code die
+maar een keer werkt, en het opruimen van verlopen rijen.
+
+`index.ts` weet niet waar de gegevens staan. Beide varianten van `adapter.ts`
+exporteren dezelfde twee namen - `StorageAdapter` en `initStorage()` - dus het
+verschil zit volledig in dat ene bestand.
 
 ---
 

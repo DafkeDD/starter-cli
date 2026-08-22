@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  *
  * Vanuit dist/utils/template.js is ../../templates de juiste map.
  */
-const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL("../../templates", import.meta.url)));
+export const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL("../../templates", import.meta.url)));
 
 export type Vars = Record<string, string | number>;
 

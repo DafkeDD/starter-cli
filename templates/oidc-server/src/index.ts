@@ -4,16 +4,31 @@ import type { Configuration } from 'oidc-provider'
 import { BRANDING, CLIENTS } from './clients.js'
 import { all as allUsers, findById, register, setBlocked, verify } from './users.js'
 import { loginPage, registerPage } from './views.js'
-import { FileAdapter } from './adapter.js'
+import { StorageAdapter, initStorage } from './adapter.js'
 import { loadOrCreateJwks } from './keys.js'
 
-const PORT = {{OIDC_PORT}}
-const ISSUER = `http://localhost:${PORT}`
+// Opslag klaarzetten voor de Provider bestaat. Bij een database zet dit de
+// verbinding op; bij bestandsopslag doet het niets.
+await initStorage()
+
+const PORT = Number(process.env.PORT ?? {{OIDC_PORT}})
+
+/**
+ * De issuer moet voor IEDEREEN dezelfde URL zijn: voor de browser en voor de
+ * backends die server-to-server met de hub praten. Verschillen die twee, dan
+ * klopt de `iss` in het id_token niet met wat de client verwacht en faalt de
+ * validatie - met een foutmelding die nergens naar wijst.
+ *
+ * Buiten Docker is dat gewoon http://localhost:9000. In Docker zet compose hier
+ * http://oidc.localhost:9000: die naam lost in je browser op naar 127.0.0.1 en
+ * binnen het compose-netwerk naar de hub-container.
+ */
+const ISSUER = process.env.OIDC_ISSUER ?? `http://localhost:${PORT}`
 
 const configuration: Configuration = {
     clients: CLIENTS,
     // Eigen opslag i.p.v. de ingebouwde demo-adapter.
-    adapter: FileAdapter,
+    adapter: StorageAdapter,
     // Eigen ondertekeningssleutels i.p.v. wegwerpsleutels bij elke start.
     jwks: await loadOrCreateJwks(),
     // Expliciete levensduur; anders waarschuwt oidc-provider per artefact.
@@ -43,7 +58,7 @@ const configuration: Configuration = {
     },
     // Vertaalt een account-id naar de claims in het id_token.
     findAccount: async (_ctx, id) => {
-        const user = findById(id)
+        const user = await findById(id)
         if (!user) return undefined
         return {
             accountId: id,
@@ -179,7 +194,7 @@ async function requireAdmin(req: express.Request, res: express.Response) {
         return undefined
     }
 
-    const user = findById(accessToken.accountId)
+    const user = await findById(accessToken.accountId)
     if (!user || user.role !== 'admin') {
         res.status(403).json({ error: 'Alleen voor beheerders' })
         return undefined
@@ -193,7 +208,7 @@ app.get('/admin/api/users', async (req, res, next) => {
         const admin = await requireAdmin(req, res)
         if (!admin) return
         res.json({
-            users: allUsers().map(u => ({
+            users: (await allUsers()).map(u => ({
                 id: u.id,
                 name: u.name,
                 email: u.email,
@@ -231,7 +246,7 @@ app.post('/admin/api/users/:id/blocked', form, async (req, res, next) => {
             res.status(400).json({ error: 'Je kan jezelf niet blokkeren.' })
             return
         }
-        setBlocked(req.params.id, String(req.body.blocked) === 'true')
+        await setBlocked(req.params.id, String(req.body.blocked) === 'true')
         res.json({ ok: true })
     } catch (err) {
         next(err)

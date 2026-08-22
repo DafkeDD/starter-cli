@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import * as p from "@clack/prompts";
 import { runQuiet } from "../utils/exec.js";
@@ -12,7 +13,7 @@ import type { PackageManager } from "../types.js";
 /** Submap binnen het project waarin de frontend wordt geïnstalleerd. */
 export const FRONTEND_DIR = "frontend";
 
-/** Poort waarop `next dev` draait. */
+/** Standaardpoort voor `next dev`. De CLI kan een andere kiezen; zie utils/ports.ts. */
 export const FRONTEND_PORT = 3000;
 
 export type Frontend = "nextjs" | "none";
@@ -51,6 +52,7 @@ export async function scaffoldFrontend(
   frontend: Frontend,
   projectDir: string,
   pm: PackageManager,
+  port: number = FRONTEND_PORT,
 ): Promise<void> {
   if (frontend === "none") {
     p.log.info("Geen frontend gekozen — overgeslagen.");
@@ -95,6 +97,11 @@ export async function scaffoldFrontend(
       setupRules(target);
       await addDeps(pm, target, ["next-intl@latest", "react-icons@latest"]);
 
+      // Next.js schuift bij een bezette poort zelf op naar 3001, maar dan
+      // kloppen de URL's in .env en in de OIDC-client niet meer. Daarom zetten
+      // we de poort hard in het dev-script.
+      pinPort(target, port);
+
       update("Prettier installeren en formatteren");
       await setupPrettier(pm, target);
     },
@@ -104,4 +111,23 @@ export async function scaffoldFrontend(
   p.log.success(
     `Next.js + next-intl + light/dark + Prettier aangemaakt in ./${FRONTEND_DIR} (talen: ${LOCALES.join(", ")}, standaard: ${DEFAULT_LOCALE}).`,
   );
+}
+
+/** Zet `next dev -p <poort>` en `next start -p <poort>` in package.json. */
+function pinPort(target: string, port: number): void {
+  const file = path.join(target, "package.json");
+  if (!fs.existsSync(file)) return;
+
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  if (!pkg.scripts) return;
+
+  for (const name of ["dev", "start"]) {
+    const script = pkg.scripts[name];
+    if (!script || / -p \d/.test(script)) continue;
+    pkg.scripts[name] = `${script} -p ${port}`;
+  }
+
+  fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n", "utf8");
 }

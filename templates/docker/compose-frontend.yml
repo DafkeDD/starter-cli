@@ -1,0 +1,21 @@
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        depends_on:
+            - backend
+        environment:
+            PORT: {{FRONTEND_PORT}}
+            # Server-side praat de frontend rechtstreeks met de container,
+            # client components via de browser en dus via localhost.
+            BACKEND_URL: http://backend:{{BACKEND_PORT}}
+            NEXT_PUBLIC_BACKEND_URL: http://localhost:{{BACKEND_PORT}}
+        ports:
+            - "{{FRONTEND_PORT}}:{{FRONTEND_PORT}}"
+        volumes:
+            - ./frontend:/app
+            - /app/node_modules
+            # Next.js schrijft hierin; als host-map zou dat traag en rommelig zijn.
+            - /app/.next
+

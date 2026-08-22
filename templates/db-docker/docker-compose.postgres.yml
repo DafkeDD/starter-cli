@@ -1,0 +1,30 @@
+# PostgreSQL voor lokale ontwikkeling.
+#
+#   docker compose -f docker-compose.postgres.yml up -d
+#   npm run db:migrate
+#
+# De gegevens blijven in het volume staan, ook na "down". Alles wissen:
+#   docker compose -f docker-compose.postgres.yml down -v
+
+services:
+    db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${DB_USER}
+            POSTGRES_PASSWORD: ${DB_PASSWORD}
+            POSTGRES_DB: ${DB_NAME}
+        ports:
+            - "${DB_PORT}:5432"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+        healthcheck:
+            # Zonder healthcheck staat de poort al open voor de database klaar
+            # is, en dan faalt je eerste migratie zonder duidelijke reden.
+            test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+volumes:
+    postgres-data:

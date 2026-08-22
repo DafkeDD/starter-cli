@@ -1,0 +1,30 @@
+    backend:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        environment:
+            PORT: {{BACKEND_PORT}}
+            DB_HOST: db
+            DB_PORT: 5432
+            DB_USER: ${DB_USER}
+            DB_PASSWORD: ${DB_PASSWORD}
+            DB_NAME: ${DB_NAME}
+            DB_SSL: "false"
+            OIDC_ISSUER: http://oidc.localhost:{{OIDC_PORT}}
+            OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+            OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+            # De browser bereikt de backend via de gepubliceerde poort, dus hier
+            # staat gewoon localhost.
+            OIDC_REDIRECT_URI: http://localhost:{{BACKEND_PORT}}/auth/callback
+            FRONTEND_URL: http://localhost:{{FRONTEND_PORT}}
+            SESSION_SECRET: ${SESSION_SECRET}
+        ports:
+            - "{{BACKEND_PORT}}:{{BACKEND_PORT}}"
+        volumes:
+            - ./backend:/app
+            - /app/node_modules
+

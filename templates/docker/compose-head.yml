@@ -1,0 +1,26 @@
+# Alles in een keer opstarten:
+#
+#   docker compose up -d --build
+#   docker compose exec backend npm run db:migrate
+#   docker compose exec oidc npm run db:migrate
+#
+# Stoppen: docker compose down     Alles wissen: docker compose down -v
+#
+# ---------------------------------------------------------------------------
+# Over de naam "oidc.localhost"
+# ---------------------------------------------------------------------------
+# De issuer van een OIDC-server moet voor IEDEREEN dezelfde URL zijn. Je browser
+# praat met de hub, en je backend praat er server-to-server mee. Gebruiken die
+# twee een andere naam, dan komt de `iss` in het id_token niet overeen met wat
+# de client verwacht en faalt de validatie.
+#
+# "localhost" werkt niet: binnen een container wijst dat naar de container zelf.
+# De servicenaam "oidc" werkt niet: die kent je browser niet.
+#
+# "oidc.localhost" werkt wel aan beide kanten. Browsers lossen elke naam die op
+# .localhost eindigt zelf op naar 127.0.0.1 (dat staat zo in RFC 6761), en
+# binnen dit netwerk verwijst de alias hieronder naar de hub-container.
+
+name: {{PROJECT_NAME}}
+
+services:
