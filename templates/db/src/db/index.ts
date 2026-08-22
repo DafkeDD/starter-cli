@@ -58,12 +58,46 @@ export async function connect(
 
     // Meteen een verbinding proberen: liever nu een duidelijke fout dan pas bij
     // het eerste verzoek van een gebruiker.
-    const probe = await pool.connect();
-    probe.release();
+    //
+    // Met opnieuw proberen, want een database die net opstart accepteert soms
+    // al verbindingen terwijl hij nog initialiseert - en verbreekt ze dan weer
+    // ("Connection terminated unexpectedly"). Dat gebeurt vooral bij een verse
+    // container: docker compose meldt de container als gestart, niet als klaar.
+    await connectWithRetry(pool);
 
     return Object.assign(makeDb(pool, pool), {
         close: () => pool.end(),
     });
+}
+
+/** Hoe vaak en hoe lang we wachten tot de database er klaar voor is. */
+const RETRY_ATTEMPTS = 10;
+const RETRY_DELAY_MS = 1000;
+
+/** Probeert te verbinden, met geduld voor een database die nog opstart. */
+async function connectWithRetry(pool: PgPool): Promise<void> {
+    for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+        try {
+            const probe = await pool.connect();
+            probe.release();
+            return;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+
+            if (attempt === RETRY_ATTEMPTS) {
+                throw new Error(
+                    `Geen verbinding met de database na ${RETRY_ATTEMPTS} pogingen: ${message}\n` +
+                        "Draait hij? Controleer met:  docker compose ps\n" +
+                        "En klopt .env (DB_HOST, DB_PORT, DB_USER, DB_NAME)?",
+                );
+            }
+
+            console.log(
+                `Database nog niet bereikbaar (${message}) - poging ${attempt} van ${RETRY_ATTEMPTS}, opnieuw over ${RETRY_DELAY_MS / 1000}s ...`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        }
+    }
 }
 
 /** Iets dat een query kan draaien: de pool, of een client in een transactie. */

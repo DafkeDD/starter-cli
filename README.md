@@ -177,11 +177,39 @@ dan is er niets gebeurd.
 
 ### Lokaal draaien
 
+Een commando:
+
 ```
 cd backend
-docker compose up -d
-npm run db:migrate
+npm run db:up
 ```
+
+Dat start de database, wacht tot hij **echt** klaar is, en migreert dan pas.
+
+Waarom dat niet twee commando's zijn: `docker compose up -d` geeft de prompt
+terug zodra de container *gestart* is, niet als PostgreSQL klaar is om te
+antwoorden. Migreer je meteen daarna, dan krijg je
+`Connection terminated unexpectedly` - de database accepteert je verbinding al
+terwijl hij nog initialiseert, en verbreekt hem weer. De `--wait` in het script
+lost dat op, en `start_period` in de healthcheck zorgt dat een trage eerste
+start (initdb plus het aanmaken van de databases) niet als mislukt geldt.
+
+Er is nog een tweede vangnet: `connect()` probeert het tien keer met een
+seconde ertussen, met een melding per poging. Start je de database dus met de
+hand zonder `--wait`, dan wacht de migratie alsnog tot hij er klaar voor is.
+
+De andere scripts:
+
+```
+npm run db:migrate           openstaande migraties uitvoeren
+npm run db:migrate:status    tonen wat er open staat
+npm run db:rollback          de laatste terugdraaien
+npm run db:reset             ALLES wissen en opnieuw opbouwen
+```
+
+Er is een `docker-compose.yml`, in de hoofdmap van het project. Wil je alleen de
+database en de apps met npm draaien, dan is `npm run db:up` genoeg - dat start
+enkel de `db`-service. Wil je alles in containers, zie de sectie Docker.
 
 `.env` krijgt een gegenereerd wachtwoord. `.env` staat in `.gitignore`,
 `.env.example` niet. Schrijven meerdere stappen in dezelfde `.env` - de database
@@ -287,7 +315,7 @@ in de hoofdmap. Beide manieren blijven werken; Docker is een tweede manier om
 hetzelfde project te draaien, geen vervanging.
 
 ```
-docker compose up -d --build
+docker compose up -d --build --wait
 docker compose exec backend npm run db:migrate
 docker compose exec oidc npm run db:migrate
 ```

@@ -1,6 +1,6 @@
 # Alles in een keer opstarten:
 #
-#   docker compose up -d --build
+#   docker compose up -d --build --wait
 #   docker compose exec backend npm run db:migrate
 #   docker compose exec oidc npm run db:migrate
 #

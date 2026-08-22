@@ -190,8 +190,8 @@ async function main(): Promise<void> {
   }
   if (backendDb !== "none") {
     steps.push([
-      `cd ${BACKEND_DIR} && docker compose up -d && ${PACKAGE_MANAGER} run db:migrate`,
-      "eerst de database",
+      `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run db:up`,
+      "database starten en migreren",
     ]);
   }
 
@@ -209,8 +209,8 @@ async function main(): Promise<void> {
 
   if (oidcDb !== "none") {
     steps.push([
-      `cd ${OIDC_DIR} && docker compose up -d && ${PACKAGE_MANAGER} run db:migrate`,
-      "eerst de database van de hub",
+      `cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:up`,
+      "database van de hub",
     ]);
   }
 

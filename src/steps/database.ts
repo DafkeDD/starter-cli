@@ -74,33 +74,22 @@ export async function scaffoldDatabase(
 
   update?.("Driver installeren");
   await addDeps(pm, target, ["pg@latest"]);
-  await addDevDeps(pm, target, ["@types/pg@latest"]);
+  // tsx hoort hier en niet alleen bij de Express-backend: de migratieloper is
+  // een TypeScript-bestand dat je los van je app draait, en NestJS brengt tsx
+  // niet mee. Zonder dit faalt `npm run db:migrate` met
+  // "'tsx' is not recognized as an internal or external command".
+  await addDevDeps(pm, target, ["@types/pg@latest", "tsx@latest"]);
 
   update?.("Configuratie schrijven");
-  writeCompose(target);
   writeEnv(target, dbName, dbPort);
   addScripts(target);
-}
-
-/** docker-compose om de database lokaal te draaien. */
-function writeCompose(target: string): void {
-  // Het bestand heet in de template docker-compose.postgres.yml en hier gewoon
-  // docker-compose.yml, zodat "docker compose up -d" zonder -f werkt.
-  const temporary = path.join(target, ".compose-tmp");
-  copyTemplate("db-docker", temporary, {});
-  fs.copyFileSync(
-    path.join(temporary, "docker-compose.postgres.yml"),
-    path.join(target, "docker-compose.yml"),
-  );
-  fs.rmSync(temporary, { recursive: true, force: true });
 }
 
 /**
  * Schrijft .env (met een echt wachtwoord) en .env.example (zonder).
  *
- * Het wachtwoord voldoet meteen aan de eisen van SQL Server: minstens acht
- * tekens, met hoofdletter, kleine letter, cijfer en leesteken. Anders start dat
- * image en stopt het onmiddellijk weer, zonder bruikbare foutmelding.
+ * Het wachtwoord is stevig genoeg voor elke database: minstens zestien tekens,
+ * met hoofdletters, kleine letters, cijfers en leestekens.
  */
 function writeEnv(target: string, dbName: string, dbPort: number): void {
   const password = generatePassword();
@@ -161,6 +150,13 @@ function generatePassword(): string {
   return characters.join("");
 }
 
+/**
+ * Het compose-bestand staat in de hoofdmap van het project, een niveau boven
+ * deze app. Expliciet met -f, zodat het niet uitmaakt vanuit welke map je het
+ * draait.
+ */
+const COMPOSE = "docker compose -f ../docker-compose.yml";
+
 /** Voegt de db-scripts toe aan package.json. */
 function addScripts(target: string): void {
   const file = path.join(target, "package.json");
@@ -172,9 +168,16 @@ function addScripts(target: string): void {
 
   pkg.scripts = {
     ...pkg.scripts,
+    // Een commando dat je nooit fout kan doen: database starten, wachten tot
+    // hij ECHT klaar is (--wait), en dan pas migreren. Zonder --wait geeft
+    // compose de prompt al terug terwijl PostgreSQL nog initialiseert, en dan
+    // faalt de migratie met "Connection terminated unexpectedly".
+    "db:up": `${COMPOSE} up -d --wait db && tsx src/db/migrate.ts up`,
     "db:migrate": "tsx src/db/migrate.ts up",
     "db:rollback": "tsx src/db/migrate.ts down",
     "db:migrate:status": "tsx src/db/migrate.ts status",
+    // Wist ALLE data van deze database en bouwt hem opnieuw op.
+    "db:reset": `${COMPOSE} down -v && npm run db:up`,
   };
 
   fs.writeFileSync(file, JSON.stringify(pkg, null, 4) + "\n", "utf8");
@@ -242,9 +245,5 @@ export async function scaffoldBackendDatabase(
   );
 
   p.log.success(`${LABEL} gekoppeld aan ./${backendDir}.`);
-  p.log.info(
-    `Database starten en migreren:\n` +
-      `  cd ${backendDir} && docker compose up -d\n` +
-      `  ${pm} run db:migrate`,
-  );
+  p.log.info(`Database starten en migreren in een keer:\n  cd ${backendDir} && ${pm} run db:up`);
 }

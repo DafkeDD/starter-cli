@@ -23,4 +23,9 @@
             interval: 5s
             timeout: 5s
             retries: 10
+            # De allereerste start doet initdb en maakt de databases aan; dat
+            # duurt langer dan een gewone herstart. Binnen start_period tellen
+            # mislukte checks niet mee, zodat een trage eerste keer niet als
+            # "unhealthy" wordt afgeserveerd.
+            start_period: 30s
 
