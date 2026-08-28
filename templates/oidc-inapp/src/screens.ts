@@ -36,13 +36,24 @@ export async function attach(_app: Express): Promise<void> {
     handle = app.getRequestHandler() as (req: Request, res: Response) => Promise<void>
 }
 
-/** Alles wat de hub niet zelf afhandelt is een pagina van je app. */
+/**
+ * Alles wat de hub niet zelf afhandelt is een pagina van je app.
+ *
+ * Alleen voor de kale Express-opzet. NestJS zet bij het opstarten zijn eigen
+ * 404 achter je routes, en die antwoordt dan vóór dit vangnet - dus daar loopt
+ * het via een exception filter (zie src/next.filter.ts).
+ */
 export function fallback(app: Express): void {
     // Express 5 wil een naam achter de ster; een kale '*' is er geen geldig
     // patroon meer sinds path-to-regexp 8.
     app.all('/*splat', (req, res) => {
-        void handle?.(req, res)
+        handleRequest(req, res)
     })
+}
+
+/** Laat Next dit verzoek afhandelen. Het vangnet van beide opzetten. */
+export function handleRequest(req: Request, res: Response): void {
+    void handle?.(req, res)
 }
 
 export function showLogin(req: Request, res: Response, next: NextFunction, ctx: ScreenContext): void {

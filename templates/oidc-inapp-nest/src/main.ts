@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core'
 import type { NestExpressApplication } from '@nestjs/platform-express'
 import { AppModule } from './app.module.js'
+import { NextFilter } from './next.filter.js'
 import { ISSUER, MOUNT, PORT, router } from './hub.js'
 import * as screens from './screens.js'
 
@@ -15,11 +16,13 @@ import * as screens from './screens.js'
  *     router van de hub parst zelf, alleen op de routes die het nodig hebben.
  *
  *  2. De volgorde. Express voert middleware uit in de volgorde waarin het
- *     geregistreerd is, en Nest hangt zijn eigen routes pas op tijdens init().
- *     Dus: hub-router, dan init(), dan pas Next als vangnet.
+ *     geregistreerd is, dus de hub-router moet erop staan voordat Nest tijdens
+ *     init() zijn eigen routes ophangt.
  *
- *  3. init() apart van listen(). Zou je meteen listen() doen, dan staat Next
- *     vóór je controllers en vangt hij ze allemaal af.
+ *  3. Next als exception filter, niet als middleware achteraan. Nest zet bij
+ *     init() een 404 achter je controllers; middleware daarna komt nooit aan
+ *     de beurt en dan geeft hij {"message":"Cannot GET /_next/..."} terug -
+ *     met een pagina zonder opmaak als resultaat.
  */
 const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false })
 const server = app.getHttpAdapter().getInstance()
@@ -30,11 +33,8 @@ await screens.attach(server)
 // De hub eerst: /oidc/auth, /oidc/token, /oidc/interaction/...
 server.use(MOUNT || '/', router)
 
-// Dan de controllers van Nest.
-await app.init()
-
-// En als laatste alles wat overblijft: jouw schermen.
-screens.fallback(server)
+// En wat Nest niet kent, is een pagina van Next.
+app.useGlobalFilters(new NextFilter())
 
 await app.listen(PORT)
 console.log(`OIDC-hub luistert op ${ISSUER}`)
