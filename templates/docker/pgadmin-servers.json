@@ -1,0 +1,14 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "{{PROJECT_NAME}}",
+            "Group": "Docker",
+            "Host": "db",
+            "Port": 5432,
+            "MaintenanceDB": "{{DB_NAME}}",
+            "Username": "{{DB_USER}}",
+            "SSLMode": "prefer",
+            "Comment": "Binnen het compose-netwerk heet de database gewoon db, en luistert hij op 5432 - niet op de poort die je op je eigen machine ziet."
+        }
+    }
+}

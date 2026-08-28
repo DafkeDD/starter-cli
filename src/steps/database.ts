@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import * as p from "@clack/prompts";
 import { addDeps, addDevDeps } from "../utils/install.js";
+import { run } from "../utils/exec.js";
 import { withProgress } from "../utils/progress.js";
 import { copyTemplate } from "../utils/template.js";
 import { mergeEnv } from "../utils/env.js";
@@ -16,7 +17,7 @@ import type { PackageManager } from "../types.js";
  * Alleen PostgreSQL. Dat scheelt een dialectlaag: de datalaag praat rechtstreeks
  * met de pg-driver en de SQL in je migraties is de SQL die echt draait.
  */
-export type Database = "postgres" | "none";
+export type Database = "docker" | "local" | "none";
 
 const DEFAULT_DB_PORT = 55432;
 const LABEL = "PostgreSQL";
@@ -24,9 +25,18 @@ const LABEL = "PostgreSQL";
 export async function askDatabase(what: string): Promise<Database> {
   const choice = await p.select({
     message: `Welke database voor ${what}?`,
-    initialValue: "postgres" as Database,
+    initialValue: "docker" as Database,
     options: [
-      { value: "postgres" as const, label: "PostgreSQL", hint: "aanbevolen" },
+      {
+        value: "docker" as const,
+        label: "PostgreSQL in Docker",
+        hint: "aanbevolen — de CLI regelt alles",
+      },
+      {
+        value: "local" as const,
+        label: "PostgreSQL die ik zelf draai",
+        hint: "je hebt er al een geinstalleerd",
+      },
       { value: "none" as const, label: "Geen database" },
     ],
   });
@@ -81,8 +91,10 @@ export async function scaffoldDatabase(
   await addDevDeps(pm, target, ["@types/pg@latest", "tsx@latest"]);
 
   update?.("Configuratie schrijven");
-  writeEnv(target, dbName, dbPort);
-  addScripts(target);
+  // Een PostgreSQL die je zelf draait luistert op de standaardpoort 5432. De
+  // uitgeweken poort geldt alleen voor de container, die we zelf publiceren.
+  writeEnv(database, target, dbName, database === "local" ? 5432 : dbPort);
+  addScripts(target, database);
 }
 
 /**
@@ -91,16 +103,33 @@ export async function scaffoldDatabase(
  * Het wachtwoord is stevig genoeg voor elke database: minstens zestien tekens,
  * met hoofdletters, kleine letters, cijfers en leestekens.
  */
-function writeEnv(target: string, dbName: string, dbPort: number): void {
+function writeEnv(
+  database: Exclude<Database, "none">,
+  target: string,
+  dbName: string,
+  dbPort: number,
+): void {
   const password = generatePassword();
+
+  const docker = database === "docker";
 
   const lines = (secret: string): string =>
     [
-      "# PostgreSQL. De container luistert intern op 5432; dit is de poort op",
-      "# jouw machine. Bewust niet 5432 - die is op een ontwikkelmachine te druk.",
+      ...(docker
+        ? [
+            "# PostgreSQL in Docker. De container luistert intern op 5432; dit is de",
+            "# poort op jouw machine. Bewust niet 5432 - die is te druk op een",
+            "# ontwikkelmachine.",
+          ]
+        : [
+            "# PostgreSQL die je zelf draait. Maak de database eenmalig aan:",
+            `#   createdb -U postgres ${dbName}`,
+            "# of in psql:",
+            `#   CREATE DATABASE "${dbName}";`,
+          ]),
       "DB_HOST=127.0.0.1",
       `DB_PORT=${dbPort}`,
-      "DB_USER=app",
+      `DB_USER=${docker ? "app" : "postgres"}`,
       `DB_PASSWORD=${secret}`,
       `DB_NAME=${dbName}`,
       "",
@@ -159,7 +188,7 @@ function generatePassword(): string {
 const COMPOSE = "docker compose -f ../docker-compose.yml";
 
 /** Voegt de db-scripts toe aan package.json. */
-function addScripts(target: string): void {
+function addScripts(target: string, database: Exclude<Database, "none">): void {
   const file = path.join(target, "package.json");
   if (!fs.existsSync(file)) return;
 
@@ -167,18 +196,25 @@ function addScripts(target: string): void {
     scripts?: Record<string, string>;
   };
 
+  const docker = database === "docker";
+
   pkg.scripts = {
     ...pkg.scripts,
+    ...(docker
+      ? {
     // Een commando dat je nooit fout kan doen: database starten, wachten tot
     // hij ECHT klaar is (--wait), en dan pas migreren. Zonder --wait geeft
     // compose de prompt al terug terwijl PostgreSQL nog initialiseert, en dan
     // faalt de migratie met "Connection terminated unexpectedly".
-    "db:up": `${COMPOSE} up -d --wait db && tsx src/db/migrate.ts up`,
+          "db:up": `${COMPOSE} up -d --wait db && tsx src/db/migrate.ts up`,
+          "db:reset": `${COMPOSE} down -v && npm run db:up`,
+          // pgAdmin start alleen als je erom vraagt; zie het profiel in compose.
+          "db:admin": `${COMPOSE} --profile tools up -d --wait pgadmin`,
+        }
+      : {}),
     "db:migrate": "tsx src/db/migrate.ts up",
     "db:rollback": "tsx src/db/migrate.ts down",
     "db:migrate:status": "tsx src/db/migrate.ts status",
-    // Wist ALLE data van deze database en bouwt hem opnieuw op.
-    "db:reset": `${COMPOSE} down -v && npm run db:up`,
   };
 
   fs.writeFileSync(file, JSON.stringify(pkg, null, 4) + "\n", "utf8");
@@ -216,7 +252,8 @@ function patchNestModule(target: string): void {
 
 /** Label voor in de meldingen. */
 export function databaseLabel(database: Database): string {
-  return database === "none" ? "geen" : LABEL;
+  if (database === "none") return "geen";
+  return database === "docker" ? `${LABEL} in Docker` : `${LABEL} (zelf draaiend)`;
 }
 
 /**
@@ -245,6 +282,54 @@ export async function scaffoldBackendDatabase(
     35000,
   );
 
-  p.log.success(`${LABEL} gekoppeld aan ./${backendDir}.`);
-  p.log.info(`Database starten en migreren in een keer:\n  cd ${backendDir} && ${pm} run db:up`);
+  p.log.success(`${databaseLabel(database)} gekoppeld aan ./${backendDir}.`);
+
+  p.log.info(
+    database === "docker"
+      ? `Database starten en migreren in een keer:\n  cd ${backendDir} && ${pm} run db:up`
+      : `Maak de database eenmalig aan en migreer:\n` +
+          `  createdb -U postgres app\n` +
+          `  cd ${backendDir} && ${pm} run db:migrate`,
+  );
+}
+
+/**
+ * Vraagt of de database meteen gestart moet worden, en doet het dan ook.
+ *
+ * De laatste stap van de CLI. Bij "ja" heb je een draaiende database met
+ * uitgevoerde migraties in plaats van een lijstje commando's dat je zelf nog
+ * moet afwerken.
+ */
+export async function offerToStart(
+  database: Database,
+  projectDir: string,
+  dirs: string[],
+  pm: PackageManager,
+): Promise<boolean> {
+  if (database !== "docker" || dirs.length === 0) return false;
+
+  const answer = await p.confirm({
+    message: "Zal ik de database nu starten en de migraties draaien?",
+    initialValue: true,
+  });
+
+  if (p.isCancel(answer) || !answer) return false;
+
+  for (const dir of dirs) {
+    p.log.step(`Database starten voor ./${dir} ...`);
+    try {
+      // Bewust met zichtbare output: dit haalt images op en dat duurt even.
+      // Een stille progress-bar zou lijken alsof er niets gebeurt.
+      await run(pm, ["run", "db:up"], path.join(projectDir, dir));
+      p.log.success(`Database van ./${dir} draait, migraties uitgevoerd.`);
+    } catch (err) {
+      p.log.warn(
+        `Starten is niet gelukt voor ./${dir}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}\n` +
+          `Draait Docker? Probeer het daarna zelf:\n  cd ${dir} && ${pm} run db:up`,
+      );
+      return false;
+    }
+  }
+
+  return true;
 }

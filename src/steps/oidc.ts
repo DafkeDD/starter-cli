@@ -7,7 +7,7 @@ import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
 import { copyTemplate } from "../utils/template.js";
 import { mergeEnv } from "../utils/env.js";
-import { scaffoldDatabase, type Database } from "./database.js";
+import { scaffoldDatabase, databaseLabel, type Database } from "./database.js";
 import { FRONTEND_DIR, FRONTEND_PORT } from "./frontend.js";
 import type { Frontend } from "./frontend.js";
 import { BACKEND_DIR, BACKEND_PORT } from "./backend.js";
@@ -143,12 +143,10 @@ export async function scaffoldOidcServer(
   projectDir: string,
   projectName: string,
   pm: PackageManager,
-  database: Database = "none",
-  ports: { oidc: number; backend: number; frontend: number; db: number } = {
+  ports: { oidc: number; backend: number; frontend: number } = {
     oidc: OIDC_PORT,
     backend: BACKEND_PORT,
     frontend: FRONTEND_PORT,
-    db: 5433,
   },
 ): Promise<void> {
   if (choice.mode !== "new") return;
@@ -174,9 +172,9 @@ export async function scaffoldOidcServer(
         "oidc-provider@latest",
         "express@latest",
         "jose@latest",
-        // Alleen nodig voor de bestandsvariant; de databasevariant hasht met
-        // scrypt uit node:crypto en heeft dus geen extra pakket nodig.
-        ...(database === "none" ? ["bcryptjs@latest"] : []),
+        // Voor de bestandsvariant. Kies je later een database, dan hasht de hub
+        // met scrypt uit node:crypto en heeft hij dit pakket niet meer nodig.
+        "bcryptjs@latest",
       ]);
       await addDevDeps(pm, target, [
         "typescript@latest",
@@ -203,29 +201,13 @@ export async function scaffoldOidcServer(
         ].join("\n"),
       );
 
-      if (database !== "none") {
-        // Zet src/db/ neer, installeert de drivers en schrijft .env.
-        // backend "none": de hub is geen Express- of Nest-scaffold van ons, hij
-        // heeft zijn eigen index.ts al.
-        // Eigen databasenaam: de hub deelt niets met de backend.
-        await scaffoldDatabase(database, target, "none", pm, update, "oidc", ports.db, ports.oidc);
-
-        update("OIDC-opslag naar de database verhuizen");
-        // Overschrijft adapter.ts en users.ts met de databaseversies en zet de
-        // OIDC-migratie klaar. De demo-migratie van de backend hoort hier niet.
-        fs.rmSync(path.join(target, "src", "db", "migrations", "001_init.ts"), { force: true });
-        copyTemplate("oidc-db", target, {});
-      }
-
       update("Prettier installeren en formatteren");
       await setupPrettier(pm, target, { tailwind: false });
     },
     45000,
   );
 
-  p.log.success(
-    `OIDC-server aangemaakt in ./${OIDC_DIR}${database === "none" ? "" : ` (opslag: ${database})`}.`,
-  );
+  p.log.success(`OIDC-server aangemaakt in ./${OIDC_DIR}.`);
 }
 
 /** Maakt van een projectnaam een geldige client_id. */
@@ -716,3 +698,40 @@ const HUB_ENV_LOADER = `try {
 // Maakt van dit bestand een module in plaats van een globaal script.
 export {}
 `;
+
+/**
+ * Zet de database onder de OIDC-hub.
+ *
+ * Bewust een aparte stap: zo kan de CLI de databasevraag pas stellen nadat
+ * alles geinstalleerd is, in plaats van vooraf.
+ */
+export async function scaffoldOidcDatabase(
+  choice: OidcChoice,
+  projectDir: string,
+  pm: PackageManager,
+  database: Database,
+  dbPort: number,
+  oidcPort: number,
+): Promise<void> {
+  if (choice.mode !== "new" || database === "none") return;
+
+  const target = path.join(projectDir, OIDC_DIR);
+  p.log.step(`Opslag van de OIDC-hub naar ${databaseLabel(database)} ...`);
+
+  await withProgress(
+    "Databaselaag opzetten",
+    async (update) => {
+      // Eigen databasenaam: de hub deelt niets met de backend.
+      await scaffoldDatabase(database, target, "none", pm, update, "oidc", dbPort, oidcPort);
+
+      update("OIDC-opslag naar de database verhuizen");
+      // Overschrijft adapter.ts en users.ts met de databaseversies en zet de
+      // OIDC-migratie klaar. De demo-migratie van de backend hoort hier niet.
+      fs.rmSync(path.join(target, "src", "db", "migrations", "001_init.ts"), { force: true });
+      copyTemplate("oidc-db", target, {});
+    },
+    35000,
+  );
+
+  p.log.success(`OIDC-hub gebruikt nu ${databaseLabel(database)}.`);
+}

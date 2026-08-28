@@ -25,10 +25,15 @@ export interface Ports {
   frontend: number;
   backend: number;
   oidc: number;
-  /** Host-poort voor de database van de backend. */
+  /**
+   * Host-poort van de database.
+   *
+   * Er is er EEN per project. De backend en de OIDC-hub delen dezelfde
+   * container en hebben daarin elk hun eigen database - vandaar het initscript
+   * dat de tweede aanmaakt. Twee poorten zou twee containers betekenen, en die
+   * zijn er niet.
+   */
   db: number;
-  /** Host-poort voor de database van de OIDC-hub. */
-  oidcDb: number;
 }
 
 export type PortName = keyof Ports;
@@ -51,7 +56,6 @@ export const DEFAULT_PORTS: Ports = {
   backend: 5000,
   oidc: 9000,
   db: 55432,
-  oidcDb: 55433,
 };
 
 const REGISTRY_DIR = path.join(os.homedir(), ".starter-cli");

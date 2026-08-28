@@ -175,20 +175,24 @@ async function scaffoldNest(
   await withProgress(
     "NestJS installeren",
     async (update) => {
-      await runQuiet(
-        "npx",
-        [
-          "--yes",
-          "@nestjs/cli@latest",
-          "new",
-          BACKEND_DIR,
-          "--package-manager",
-          pm,
-          "--skip-git",
-          "--strict",
-        ],
-        projectDir,
-      );
+      try {
+        await runQuiet(
+          "npx",
+          [
+            "--yes",
+            "@nestjs/cli@latest",
+            "new",
+            BACKEND_DIR,
+            "--package-manager",
+            pm,
+            "--skip-git",
+            "--strict",
+          ],
+          projectDir,
+        );
+      } catch (err) {
+        throw explainNestFailure(err);
+      }
 
       fs.writeFileSync(path.join(target, "src", "env.ts"), ENV_LOADER);
       patchNestPort(path.join(target, "src", "main.ts"), port);
@@ -260,4 +264,36 @@ function writePortEnv(target: string, port: number): void {
 
   mergeEnv(path.join(target, ".env"), block);
   mergeEnv(path.join(target, ".env.example"), block);
+}
+
+/**
+ * De Nest-CLI valt op sommige Node-versies om met een stacktrace waar je niets
+ * aan hebt. De oorzaak ligt niet bij jouw project:
+ *
+ *   @nestjs/cli -> glob -> minimatch -> brace-expansion
+ *
+ * brace-expansion is sinds versie 5 pure ESM ("type": "module"). Oudere
+ * Node 22-versies kunnen zo'n module niet met require() laden zodra er een
+ * kringverwijzing in zit, en gooien dan ERR_REQUIRE_CYCLE_MODULE of
+ * ERR_REQUIRE_ESM. Nieuwere Node-versies gaan daar wel goed mee om.
+ *
+ * Deze functie vertaalt die stacktrace naar iets waar je wat mee kan.
+ */
+function explainNestFailure(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (!/ERR_REQUIRE_CYCLE_MODULE|ERR_REQUIRE_ESM|brace-expansion/.test(message)) {
+    return error instanceof Error ? error : new Error(message);
+  }
+
+  return new Error(
+    "De NestJS-CLI kon niet draaien op deze Node-versie.\n\n" +
+      `Je draait Node ${process.version}. De fout komt uit een pakket diep onder\n` +
+      "@nestjs/cli (glob -> minimatch -> brace-expansion), dat sinds kort pure ESM\n" +
+      "is. Oudere Node 22-versies kunnen dat niet met require() laden.\n\n" +
+      "Werk Node bij naar 22.23 of nieuwer, of stap over op 24. Daarna werkt het:\n" +
+      "  https://nodejs.org  (of: nvm install --lts)\n\n" +
+      "Wil je nu door zonder Node bij te werken, kies dan Node.js + Express in\n" +
+      "plaats van NestJS - die heeft dit probleem niet.",
+  );
 }

@@ -1,0 +1,31 @@
+
+    # pgAdmin start NIET vanzelf mee. Het is een zware container en niet iedereen
+    # gebruikt hem - je hebt misschien liever DBeaver of psql.
+    #
+    #   npm run db:admin        (of: docker compose --profile tools up -d pgadmin)
+    #
+    # Daarna http://localhost:{{PGADMIN_PORT}}, inloggen met de gegevens uit .env.
+    # De verbinding met je database staat al klaar; je hoeft alleen het
+    # wachtwoord van de database in te vullen (dat staat ook in .env).
+    pgadmin:
+        image: dpage/pgadmin4:latest
+        profiles:
+            - tools
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+            # Scheelt een inlogscherm bij elke herstart in ontwikkeling.
+            PGADMIN_CONFIG_SERVER_MODE: "False"
+            PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+        ports:
+            # De container luistert intern op 80.
+            - "{{PGADMIN_PORT}}:80"
+        volumes:
+            - pgadmin-data:/var/lib/pgadmin
+            # Zet de serververbinding klaar. Wordt alleen gelezen bij de
+            # allereerste start, als pgAdmin zijn eigen database aanmaakt.
+            - ./docker/pgadmin-servers.json:/pgadmin4/servers.json:ro

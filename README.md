@@ -2,7 +2,8 @@
 
 Interactieve CLI die op basis van vragen een project scaffold in de **huidige map**.
 
-Op dit moment zijn er zeven vragen:
+Op dit moment zijn er zeven vragen. De eerste vijf komen vooraan; de twee over
+de database komen **na de installatie**, als je apps er al staan:
 
 1. **Welke frontend?** — Next.js (altijd de laatste versie, via
    `create-next-app@latest`) of geen. Komt in `frontend/`, met TypeScript,
@@ -11,15 +12,25 @@ Op dit moment zijn er zeven vragen:
    `github:DafkeDD/projectx-ui` als broncode in de frontend, en neemt de design
    tokens over in `globals.css`. Zo ziet elke app er hetzelfde uit.
 3. **Welke backend?** — Node.js + Express, NestJS of geen. Komt in `backend/`,
-   in TypeScript, **altijd op poort 5000**, ook met **Prettier**.
-4. **Welke database voor de backend?** — PostgreSQL of geen. Eigen datalaag,
-   geen ORM.
-5. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
+   in TypeScript, ook met **Prettier**.
+4. **OIDC / SSO?** — een nieuwe OIDC-server opzetten (deze app wordt de hub),
    aansluiten op een bestaande, of niets.
-6. **Welke database voor de OIDC-hub?** — alleen bij een nieuwe hub. Mag een
-   aparte database zijn, los van die van de backend.
-7. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
-   repo met die naam aan en pusht meteen.
+5. **GitHub gebruiken?** — bij ja vraagt hij de projectnaam, en maakt hij een
+   repo met die naam aan.
+
+Dan wordt alles geinstalleerd. Pas daarna:
+
+6. **Welke database voor de backend?** — PostgreSQL in Docker, een PostgreSQL
+   die je zelf draait, of geen. Eigen datalaag, geen ORM.
+7. **Welke database voor de OIDC-hub?** — alleen bij een nieuwe hub.
+
+En als je voor Docker koos, tot slot: **"Zal ik de database nu starten en de
+migraties draaien?"** Bij ja heb je meteen een werkende database in plaats van
+een lijstje commando's dat je nog moet afwerken.
+
+Waarom die twee achteraan: je ziet dan dat de installatie gelukt is voor je
+beslist waar je data heen gaat. En het installeren duurt een paar minuten - die
+tijd zit je liever niet te wachten op een keuze die je al gemaakt hebt.
 
 `frontend/` en `backend/` krijgen exact dezelfde Prettier-instellingen.
 
@@ -175,14 +186,43 @@ ontwikkeling (`001_init.ts`) en productie (`001_init.js`) dezelfde migratie zien
 PostgreSQL doet ook DDL binnen een transactie: mislukt een migratie halverwege,
 dan is er niets gebeurd.
 
-### Lokaal draaien
+### In Docker of zelf draaien
 
-Een commando:
+De databasevraag heeft twee smaken.
+
+**PostgreSQL in Docker** (aanbevolen) - de CLI regelt alles. Een commando:
 
 ```
 cd backend
 npm run db:up
 ```
+
+**PostgreSQL die je zelf draait** - je hebt er al een geinstalleerd. Dan komt er
+geen `db`-service in compose, wordt er geen host-poort geclaimd, en gaat `.env`
+uit van de standaard `127.0.0.1:5432` met gebruiker `postgres`. De database maak
+je een keer zelf aan:
+
+```
+createdb -U postgres app
+cd backend
+npm run db:migrate
+```
+
+Vergeet je dat, dan zegt de app precies wat je moet doen in plaats van een kale
+foutmelding:
+
+```
+database "app" does not exist
+
+Maak hem eenmalig aan:
+  createdb -U postgres app
+of in psql:
+  CREATE DATABASE "app";
+```
+
+De rest - de datalaag, de migraties, de scripts - is in beide gevallen gelijk.
+Wisselen doe je door `DB_HOST`, `DB_PORT` en `DB_USER` in `.env` aan te passen;
+aan de code verandert niets.
 
 Dat start de database, wacht tot hij **echt** klaar is, en migreert dan pas.
 
@@ -205,7 +245,31 @@ npm run db:migrate           openstaande migraties uitvoeren
 npm run db:migrate:status    tonen wat er open staat
 npm run db:rollback          de laatste terugdraaien
 npm run db:reset             ALLES wissen en opnieuw opbouwen
+npm run db:admin             pgAdmin starten op http://localhost:5050
 ```
+
+### pgAdmin
+
+pgAdmin zit in de compose, maar start **niet** vanzelf mee. Het is een zware
+container en niet iedereen gebruikt hem - je hebt misschien liever DBeaver of
+gewoon `psql`. Hij hangt daarom achter een profiel:
+
+```
+npm run db:admin
+```
+
+Inloggen met `PGADMIN_EMAIL` en `PGADMIN_PASSWORD` uit de `.env` in je hoofdmap
+(standaard `admin@localhost` / `admin` - het draait alleen lokaal).
+
+De serververbinding staat al klaar via `docker/pgadmin-servers.json`. Let op wat
+daar staat: **host `db`, poort 5432** - niet de poort die jij op je eigen machine
+ziet. pgAdmin draait namelijk zelf in het compose-netwerk en praat rechtstreeks
+met de container. Bij het openen vraagt hij eenmalig het wachtwoord van de
+database; dat staat in dezelfde `.env`.
+
+Dat bestand wordt alleen gelezen bij de allereerste start, wanneer pgAdmin zijn
+eigen database aanmaakt. Pas je het later aan, dan moet je het volume weggooien:
+`docker compose down -v`.
 
 Er is een `docker-compose.yml`, in de hoofdmap van het project. Wil je alleen de
 database en de apps met npm draaien, dan is `npm run db:up` genoeg - dat start

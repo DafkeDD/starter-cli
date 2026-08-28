@@ -63,7 +63,7 @@ export async function connect(
     // al verbindingen terwijl hij nog initialiseert - en verbreekt ze dan weer
     // ("Connection terminated unexpectedly"). Dat gebeurt vooral bij een verse
     // container: docker compose meldt de container als gestart, niet als klaar.
-    await connectWithRetry(pool);
+    await connectWithRetry(pool, config);
 
     return Object.assign(makeDb(pool, pool), {
         close: () => pool.end(),
@@ -75,7 +75,7 @@ const RETRY_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 1000;
 
 /** Probeert te verbinden, met geduld voor een database die nog opstart. */
-async function connectWithRetry(pool: PgPool): Promise<void> {
+async function connectWithRetry(pool: PgPool, config: DbConfig): Promise<void> {
     for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
         try {
             const probe = await pool.connect();
@@ -84,10 +84,22 @@ async function connectWithRetry(pool: PgPool): Promise<void> {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
 
+            // Bestaat de server wel maar de database niet, dan heeft opnieuw
+            // proberen geen zin - dat lost zichzelf niet op.
+            if (/database .* does not exist/i.test(message)) {
+                throw new Error(
+                    `${message}\n\n` +
+                        `Maak hem eenmalig aan:\n` +
+                        `  createdb -U ${config.user} ${config.database}\n` +
+                        `of in psql:\n` +
+                        `  CREATE DATABASE "${config.database}";`,
+                );
+            }
+
             if (attempt === RETRY_ATTEMPTS) {
                 throw new Error(
                     `Geen verbinding met de database na ${RETRY_ATTEMPTS} pogingen: ${message}\n` +
-                        "Draait hij? Controleer met:  docker compose ps\n" +
+                        "Draait hij? Bij Docker:  docker compose ps\n" +
                         "En klopt .env (DB_HOST, DB_PORT, DB_USER, DB_NAME)?",
                 );
             }

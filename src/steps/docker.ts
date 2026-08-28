@@ -23,6 +23,12 @@ export interface DockerParts {
   oidcDatabase: boolean;
 }
 
+/**
+ * Poort voor pgAdmin. Ver van 3000/5000/9000 vandaan, want dit is gereedschap
+ * en geen onderdeel van je applicatie.
+ */
+const PGADMIN_PORT = 5050;
+
 interface DockerOptions {
   projectName: string;
   ports: Ports;
@@ -64,6 +70,9 @@ export function scaffoldDocker(
     BACKEND_PORT: ports.backend,
     OIDC_PORT: ports.oidc,
     BACKEND_DEV_SCRIPT: options.backendDevScript,
+    PGADMIN_PORT,
+    DB_NAME: "",
+    DB_USER: "",
   };
 
   p.log.step("Docker-opzet genereren ...");
@@ -93,9 +102,34 @@ export function scaffoldDocker(
   if (parts.oidc) pieces.push(fragment("compose-oidc.yml", vars));
   if (parts.backend) pieces.push(fragment("compose-backend.yml", vars));
   if (parts.frontend) pieces.push(fragment("compose-frontend.yml", vars));
-  if (parts.database || parts.oidcDatabase) pieces.push(fragment("compose-volumes.yml", vars));
+  const heeftDatabase = parts.database || parts.oidcDatabase;
+  if (heeftDatabase) {
+    pieces.push(fragment("compose-pgadmin.yml", vars));
+    pieces.push(fragment("compose-volumes.yml", vars));
+    pieces.push(fragment("compose-volumes-pgadmin.yml", vars));
+  }
 
   fs.writeFileSync(path.join(projectDir, "docker-compose.yml"), pieces.join(""), "utf8");
+
+  // De verbinding die pgAdmin bij de eerste start inleest.
+  if (heeftDatabase) {
+    const scripts = path.join(projectDir, "docker");
+    fs.mkdirSync(scripts, { recursive: true });
+
+    const backendEnvFile = path.join(projectDir, "backend", ".env");
+    const oidcEnvFile = path.join(projectDir, "oidc", ".env");
+    const bron = fs.existsSync(backendEnvFile) ? backendEnvFile : oidcEnvFile;
+
+    fs.writeFileSync(
+      path.join(scripts, "pgadmin-servers.json"),
+      fragment("pgadmin-servers.json", {
+        ...vars,
+        DB_NAME: readEnv(bron, "DB_NAME", "app"),
+        DB_USER: readEnv(bron, "DB_USER", "app"),
+      }),
+      "utf8",
+    );
+  }
 
   // Het initscript dat de tweede database aanmaakt voor de hub.
   if (parts.oidcDatabase) {
@@ -134,6 +168,10 @@ export function scaffoldDocker(
     `OIDC_CLIENT_ID=${readEnv(backendEnv, "OIDC_CLIENT_ID")}`,
     `OIDC_CLIENT_SECRET=${readEnv(backendEnv, "OIDC_CLIENT_SECRET")}`,
     `SESSION_SECRET=${readEnv(backendEnv, "SESSION_SECRET")}`,
+    "",
+    "# Inloggen op pgAdmin (npm run db:admin). Alleen lokaal, dus dit mag simpel.",
+    "PGADMIN_EMAIL=admin@localhost",
+    "PGADMIN_PASSWORD=admin",
     "",
   ].join("\n");
 
