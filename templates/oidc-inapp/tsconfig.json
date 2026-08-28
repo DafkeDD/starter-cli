@@ -4,7 +4,11 @@
         "lib": ["dom", "dom.iterable", "ES2022"],
         "module": "esnext",
         "moduleResolution": "bundler",
-        "jsx": "preserve",
+        // react-jsx en niet preserve: Next zet dit anders bij elke start zelf om
+        // en meldt dat luidruchtig in je console.
+        "jsx": "react-jsx",
+        // Idem voor allowJs; Next voegt het toe als het ontbreekt.
+        "allowJs": true,
         "strict": true,
         "noEmit": true,
         "skipLibCheck": true,
@@ -17,6 +21,12 @@
         "plugins": [{ "name": "next" }],
         "paths": { "@/*": ["./src/*"] }
     },
-    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+    "include": [
+        "next-env.d.ts",
+        "**/*.ts",
+        "**/*.tsx",
+        ".next/types/**/*.ts",
+        ".next/dev/types/**/*.ts"
+    ],
     "exclude": ["node_modules"]
 }
