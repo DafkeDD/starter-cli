@@ -22,11 +22,10 @@ import {
   scaffoldOidcDatabase,
   scaffoldOidcClient,
   scaffoldOidcFrontend,
-  askHubScreens,
-  scaffoldOidcWeb,
+  askHub,
+  HUB_MOUNT,
   OIDC_DIR,
   OIDC_PORT,
-  OIDC_WEB_DIR,
 } from "./steps/oidc.js";
 import { scaffoldDocker } from "./steps/docker.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
@@ -60,7 +59,7 @@ async function main(): Promise<void> {
   const backend = await askBackend();
   const oidc = await askOidc(defaultName);
   // Alleen relevant als dit project de hub bouwt; wie aansluit erft de schermen.
-  const hubScreens = oidc.mode === "new" ? await askHubScreens() : "builtin";
+  const hub = oidc.mode === "new" ? await askHub() : { mode: "standalone" as const, server: "express" as const };
   const github = await askGithub(defaultName);
   // De databasevragen komen bewust later, als alles geinstalleerd is.
 
@@ -77,9 +76,15 @@ async function main(): Promise<void> {
   if (frontend === "nextjs") needed.push("frontend");
   if (backend !== "none") needed.push("backend");
   if (oidc.mode === "new") needed.push("oidc");
-  if (hubScreens === "nextjs") needed.push("oidcWeb");
 
   let ports = await resolvePorts(projectDir, needed);
+
+  // De issuer pas nu vastleggen: hij hangt aan de poort die we net gekozen
+  // hebben en aan het mountpad van de hub. Deed askOidc dit, dan stond er
+  // http://localhost:9000 in je clients terwijl de hub op 9001 draait.
+  if (oidc.mode === "new") {
+    oidc.issuer = `http://localhost:${ports.oidc}${hub.mode === "inapp" ? HUB_MOUNT : ""}`;
+  }
 
   // ---- Controles ----------------------------------------------------------
   if (frontend === "nextjs") {
@@ -90,9 +95,6 @@ async function main(): Promise<void> {
   }
   if (oidc.mode === "new") {
     assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
-  }
-  if (hubScreens === "nextjs") {
-    assertEmpty(path.join(projectDir, OIDC_WEB_DIR), OIDC_WEB_DIR);
   }
 
   // ---- Overzicht ----------------------------------------------------------
@@ -126,10 +128,10 @@ async function main(): Promise<void> {
       )}`,
       ...(oidc.mode === "new"
         ? [
-            `${pc.dim("Hub-UI  ")}  ${pc.cyan(
-              hubScreens === "nextjs"
-                ? `Next.js${pc.dim(`  -> ./${OIDC_WEB_DIR} (poort ${ports.oidcWeb})`)}`
-                : "ingebouwd",
+            `${pc.dim("Hub     ")}  ${pc.cyan(
+              hub.mode === "inapp"
+                ? `${hub.server === "nestjs" ? "NestJS" : "Express"} + Next.js${pc.dim("  een proces, hub op /oidc")}`
+                : `eigen server${pc.dim("  schermen als HTML")}`,
             )}`,
           ]
         : []),
@@ -157,14 +159,10 @@ async function main(): Promise<void> {
   await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER, ports.frontend);
   await scaffoldCustomUi(customUi, frontend, projectDir, PACKAGE_MANAGER);
   await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER, ports.backend);
-  await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER, {
+  await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER, hub, {
     oidc: ports.oidc,
     backend: ports.backend,
     frontend: ports.frontend,
-  });
-  await scaffoldOidcWeb(oidc, hubScreens, projectDir, defaultName, PACKAGE_MANAGER, {
-    oidc: ports.oidc,
-    oidcWeb: ports.oidcWeb,
   });
   await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER, {
     backend: ports.backend,
@@ -229,13 +227,13 @@ async function main(): Promise<void> {
       oidc: oidc.mode === "new",
       database: backendDb === "docker",
       oidcDatabase: oidcDb === "docker",
-      oidcWeb: hubScreens === "nextjs",
     },
     projectDir,
     {
       projectName: github.useGithub ? github.projectName : defaultName,
       ports,
       backendDevScript: backend === "nestjs" ? "start:dev" : "dev",
+      hubMount: hub.mode === "inapp" ? HUB_MOUNT : "",
     },
   );
   // ---- Lokale database aanmaken -------------------------------------------
@@ -313,13 +311,6 @@ async function main(): Promise<void> {
     ]);
   } else if (oidcDb === "docker" && !gestart) {
     steps.push([`cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:up`, "database van de hub"]);
-  }
-
-  if (hubScreens === "nextjs") {
-    steps.push([
-      `cd ${OIDC_WEB_DIR} && ${PACKAGE_MANAGER} run dev`,
-      "de schermen van de hub",
-    ]);
   }
 
   if (oidc.mode === "new") {

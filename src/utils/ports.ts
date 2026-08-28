@@ -26,13 +26,6 @@ export interface Ports {
   backend: number;
   oidc: number;
   /**
-   * De Next.js-app met de schermen van de hub.
-   *
-   * Draait achter de hub: de browser komt er nooit rechtstreeks op uit, maar
-   * hij moet wel ergens luisteren zodat de hub ernaartoe kan proxyen.
-   */
-  oidcWeb: number;
-  /**
    * Host-poort van de database.
    *
    * Er is er EEN per project. De backend en de OIDC-hub delen dezelfde
@@ -62,7 +55,6 @@ export const DEFAULT_PORTS: Ports = {
   frontend: 3000,
   backend: 5000,
   oidc: 9000,
-  oidcWeb: 9100,
   db: 55432,
 };
 

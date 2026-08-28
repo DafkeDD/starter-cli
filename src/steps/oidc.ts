@@ -17,15 +17,9 @@ import type { PackageManager } from "../types.js";
 /** Map voor een nieuwe OIDC-server. */
 export const OIDC_DIR = "oidc";
 
-/** De Next.js-app met de schermen van de hub. Draait achter de hub. */
-export const OIDC_WEB_DIR = "oidc-web";
-
 /** Poort van de OIDC-server, naast frontend (3000) en backend (5000). */
 /** Standaardpoort van de hub. De CLI kan een andere kiezen; zie utils/ports.ts. */
 export const OIDC_PORT = 9000;
-
-/** Waar de schermen luisteren. Je bezoekt deze poort nooit zelf. */
-export const OIDC_WEB_PORT = 9100;
 
 export type OidcMode = "new" | "existing" | "none";
 
@@ -42,100 +36,73 @@ export interface OidcChoice {
 }
 
 /**
- * Hoe de hub zijn inlog- en registratieschermen rendert.
+ * Hoe de hub draait.
  *
- * De ingebouwde variant is een paar HTML-strings in views.ts: geen extra app,
- * geen extra poort, en de hub staat volledig op zichzelf. De Next.js-variant
- * geeft je React, Tailwind en een echt design, maar zet er wel een vierde app
- * naast die de hub voor je proxyt.
+ * "standalone" is een eigen servertje dat zijn schermen als HTML rendert:
+ * niets extra's, en de hub staat volledig op zichzelf.
+ *
+ * "inapp" zet Next.js in datzelfde proces. Dan is de hub één app - de
+ * OIDC-endpoints, de inlogschermen en je eigen portaal delen één server, één
+ * poort en één origin. Geen proxy nodig, en de interaction-cookie klopt altijd.
+ * De hub verhuist dan wel naar /oidc, want de wortel is dan van jouw schermen.
  */
-export type HubScreens = "builtin" | "nextjs";
+export type HubMode = "standalone" | "inapp";
 
-export async function askHubScreens(): Promise<HubScreens> {
-  const choice = await p.select({
-    message: "Schermen van de hub?",
-    initialValue: "builtin" as HubScreens,
+/** Welke server er onder de in-app hub ligt. Nest draait ook op Express. */
+export type HubServer = "express" | "nestjs";
+
+export interface HubChoice {
+  mode: HubMode;
+  server: HubServer;
+}
+
+/** Waar de hub hangt als hij in je eigen app zit. */
+export const HUB_MOUNT = "/oidc";
+
+export async function askHub(): Promise<HubChoice> {
+  const mode = await p.select({
+    message: "Hoe draait de OIDC-hub?",
+    initialValue: "standalone" as HubMode,
     options: [
       {
-        value: "builtin" as const,
-        label: "Ingebouwd",
-        hint: "HTML uit de hub zelf - niets extra's",
+        value: "standalone" as const,
+        label: "Als eigen server",
+        hint: "kaal en zelfstandig, schermen als HTML",
       },
       {
-        value: "nextjs" as const,
-        label: "Next.js",
-        hint: `eigen design in ./${OIDC_WEB_DIR}, de hub proxyt hem`,
+        value: "inapp" as const,
+        label: "Als één app met Next.js",
+        hint: `eigen schermen, hub op ${HUB_MOUNT}`,
       },
     ],
   });
 
-  if (p.isCancel(choice)) {
+  if (p.isCancel(mode)) {
     p.cancel("Geannuleerd.");
     process.exit(0);
   }
 
-  return choice;
-}
+  if (mode === "standalone") return { mode, server: "express" };
 
-/**
- * Zet de Next.js-schermen naast de hub en laat de hub ernaar proxyen.
- *
- * Twee dingen gebeuren hier: de UI-app komt in ./oidc-web, en het bestand
- * src/screens.ts van de hub wordt vervangen door de proxy-variant. Die naad
- * bestaat juist hiervoor - de routes van de hub blijven onaangeroerd.
- */
-export async function scaffoldOidcWeb(
-  choice: OidcChoice,
-  screens: HubScreens,
-  projectDir: string,
-  projectName: string,
-  pm: PackageManager,
-  ports: { oidc: number; oidcWeb: number },
-): Promise<void> {
-  if (choice.mode !== "new" || screens !== "nextjs") return;
+  const server = await p.select({
+    message: "Welke server onder de hub?",
+    initialValue: "express" as HubServer,
+    options: [
+      { value: "express" as const, label: "Express", hint: "dun; je schrijft de structuur zelf" },
+      {
+        value: "nestjs" as const,
+        label: "NestJS",
+        hint: "modules en DI, voor als er echt API bij komt",
+      },
+    ],
+  });
 
-  const target = path.join(projectDir, OIDC_WEB_DIR);
-  p.log.step(`Schermen van de hub opzetten in ./${OIDC_WEB_DIR} (poort ${ports.oidcWeb}) ...`);
+  if (p.isCancel(server)) {
+    p.cancel("Geannuleerd.");
+    process.exit(0);
+  }
 
-  await withProgress(
-    "Schermen installeren",
-    async (update) => {
-      copyTemplate("oidc-web", target, {
-        OIDC_PORT: ports.oidc,
-        OIDC_WEB_PORT: ports.oidcWeb,
-        BRAND_NAME: projectName,
-      });
-
-      update("Pakketten installeren");
-      await addDeps(pm, target, ["next@latest", "react@latest", "react-dom@latest"]);
-      await addDevDeps(pm, target, [
-        "typescript@latest",
-        "@types/node@latest",
-        "@types/react@latest",
-        "@types/react-dom@latest",
-        "tailwindcss@latest",
-        "@tailwindcss/postcss@latest",
-      ]);
-
-      update("Hub laten proxyen");
-      const hub = path.join(projectDir, OIDC_DIR);
-      copyTemplate("oidc-web-hub", hub, { OIDC_WEB_PORT: ports.oidcWeb });
-      await addDeps(pm, hub, ["http-proxy-middleware@latest"]);
-
-      mergeEnv(
-        path.join(hub, ".env"),
-        [
-          "# Waar de schermen van de hub draaien. De hub proxyt ernaartoe; jij",
-          "# bezoekt deze poort nooit rechtstreeks.",
-          `OIDC_WEB_URL=http://localhost:${ports.oidcWeb}`,
-          "",
-        ].join("\n"),
-      );
-    },
-    60000,
-  );
-
-  p.log.success(`Schermen van de hub aangemaakt in ./${OIDC_WEB_DIR}.`);
+  return { mode, server };
 }
 
 /**
@@ -246,6 +213,7 @@ export async function scaffoldOidcServer(
   projectDir: string,
   projectName: string,
   pm: PackageManager,
+  hub: HubChoice,
   ports: { oidc: number; backend: number; frontend: number } = {
     oidc: OIDC_PORT,
     backend: BACKEND_PORT,
@@ -260,7 +228,12 @@ export async function scaffoldOidcServer(
   await withProgress(
     "OIDC-server installeren",
     async (update) => {
+      // Leeg als de hub een eigen server is: dan is hij baas over alle paden.
+      // Zit hij in je app, dan moet er ruimte over blijven voor jouw schermen.
+      const mount = hub.mode === "inapp" ? HUB_MOUNT : "";
+
       copyTemplate("oidc-server", target, {
+        MOUNT: mount,
         OIDC_PORT: ports.oidc,
         BACKEND_PORT: ports.backend,
         FRONTEND_PORT: ports.frontend,
@@ -290,7 +263,18 @@ export async function scaffoldOidcServer(
       // De hub leest PORT en OIDC_ISSUER uit .env, dus hij heeft altijd een
       // env-lader nodig - ook zonder database.
       fs.writeFileSync(path.join(target, "src", "env.ts"), HUB_ENV_LOADER, "utf8");
-      prependEnvImport(path.join(target, "src", "index.ts"));
+
+      if (hub.mode === "inapp") {
+        update("Schermen en server samenvoegen");
+        await scaffoldInAppHub(hub, target, projectName, pm, mount);
+      }
+
+      // Het startbestand verschilt per opzet; de env-lader hoort in beide als
+      // allereerste import, want ES-modules evalueren imports vooraf.
+      prependEnvImport(
+        path.join(target, "src", hub.server === "nestjs" ? "main.ts" : "index.ts"),
+      );
+
       mergeEnv(
         path.join(target, ".env"),
         [
@@ -299,7 +283,7 @@ export async function scaffoldOidcServer(
           "",
           "# Moet exact de URL zijn die ook de browser gebruikt - anders klopt de",
           "# iss in het id_token niet en faalt de validatie bij de clients.",
-          `OIDC_ISSUER=http://localhost:${ports.oidc}`,
+          `OIDC_ISSUER=http://localhost:${ports.oidc}${mount}`,
           "",
         ].join("\n"),
       );
@@ -310,7 +294,81 @@ export async function scaffoldOidcServer(
     45000,
   );
 
-  p.log.success(`OIDC-server aangemaakt in ./${OIDC_DIR}.`);
+  p.log.success(
+    hub.mode === "inapp"
+      ? `Hub aangemaakt in ./${OIDC_DIR} (${hub.server === "nestjs" ? "NestJS" : "Express"} + Next.js, één proces).`
+      : `OIDC-server aangemaakt in ./${OIDC_DIR}.`,
+  );
+}
+
+/**
+ * Next.js in dezelfde map en hetzelfde proces als de hub zetten.
+ *
+ * De schermen komen uit templates/oidc-inapp; bij NestJS komt daar een eigen
+ * opstartbestand overheen. src/index.ts van de Express-opzet gaat dan weg -
+ * twee startbestanden naast elkaar is vragen om de verkeerde te draaien.
+ */
+async function scaffoldInAppHub(
+  hub: HubChoice,
+  target: string,
+  projectName: string,
+  pm: PackageManager,
+  mount: string,
+): Promise<void> {
+  copyTemplate("oidc-inapp", target, { MOUNT: mount, BRAND_NAME: projectName });
+
+  await addDeps(pm, target, ["next@latest", "react@latest", "react-dom@latest"]);
+  await addDevDeps(pm, target, [
+    "@types/react@latest",
+    "@types/react-dom@latest",
+    "tailwindcss@latest",
+    "@tailwindcss/postcss@latest",
+  ]);
+
+  if (hub.server === "nestjs") {
+    copyTemplate("oidc-inapp-nest", target, { MOUNT: mount });
+    fs.rmSync(path.join(target, "src", "index.ts"), { force: true });
+
+    await addDeps(pm, target, [
+      "@nestjs/common@latest",
+      "@nestjs/core@latest",
+      "@nestjs/platform-express@latest",
+      "reflect-metadata@latest",
+      "rxjs@latest",
+    ]);
+    // TypeScript vastzetten op 6. De Nest-CLI compileert via de programmatische
+    // compiler-API, en die zit niet in TypeScript 7.0 - `nest build` stopt daar
+    // met "does not expose the programmatic compiler API". Terug in 7.1, zegt
+    // de foutmelding; tot die tijd is dit geen voorkeur maar een vereiste.
+    await addDevDeps(pm, target, ["@nestjs/cli@latest", "typescript@^6"]);
+  }
+
+  setHubScripts(target, hub);
+}
+
+/**
+ * De startscripts van de hub.
+ *
+ * Express draait op tsx. NestJS niet: die heeft emitDecoratorMetadata nodig
+ * voor zijn dependency injection, en dat kan esbuild - waar tsx op draait -
+ * niet. Vandaar de gewone Nest-compiler, met een eigen tsconfig.build.json die
+ * de Next-bestanden overslaat.
+ */
+function setHubScripts(target: string, hub: HubChoice): void {
+  const file = path.join(target, "package.json");
+  if (!fs.existsSync(file)) return;
+
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as { scripts?: Record<string, string> };
+
+  pkg.scripts = {
+    ...pkg.scripts,
+    ...(hub.server === "nestjs"
+      ? { dev: "nest start --watch", build: "nest build", start: "node dist/main.js" }
+      : { dev: "tsx watch src/index.ts", start: "tsx src/index.ts" }),
+    typecheck: "tsc --noEmit",
+  };
+
+  fs.writeFileSync(file, JSON.stringify(pkg, null, 4) + "\n", "utf8");
 }
 
 /** Maakt van een projectnaam een geldige client_id. */

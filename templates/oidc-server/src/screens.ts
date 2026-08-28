@@ -20,8 +20,17 @@ export interface ScreenContext {
     email?: string
 }
 
-/** Eenmalig, bij het opstarten. Hier valt in deze versie niets te doen. */
-export function attach(_app: Express): void {}
+/** Eenmalig bij het opstarten, VOOR de routes van de hub. */
+export async function attach(_app: Express): Promise<void> {}
+
+/**
+ * Wat er met alles gebeurt wat de hub zelf niet afhandelt, NA zijn routes.
+ *
+ * Deze versie doet niets: een losse hub hoort een 404 te geven op paden die hij
+ * niet kent. De in-app variant hangt hier Next.js op, zodat je eigen schermen
+ * de rest van de app vullen.
+ */
+export function fallback(_app: Express): void {}
 
 export function showLogin(_req: Request, res: Response, _next: NextFunction, ctx: ScreenContext): void {
     res.send(loginPage(ctx.brand, ctx.uid, ctx.error))

@@ -1,0 +1,29 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        // Bewust esnext + bundler, niet NodeNext. Onder NodeNext ziet TypeScript
+        // de CJS-typings van Next en dan is `next({...})` niet aanroepbaar,
+        // terwijl het dat op runtime prima is. De uitvoer blijft ESM die Node
+        // rechtstreeks draait, want alle imports hebben al een .js-extensie.
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022"],
+        "outDir": "dist",
+        "rootDir": "src",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "resolveJsonModule": true,
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true
+    },
+    "include": ["src/**/*.ts"],
+    "exclude": [
+        "node_modules",
+        "dist",
+        ".next",
+        "src/app/**",
+        "src/components/**",
+        "**/*.tsx"
+    ]
+}
