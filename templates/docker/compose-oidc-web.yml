@@ -1,0 +1,16 @@
+
+    # De schermen van de hub. Geen ports-blok: deze app is alleen binnen het
+    # netwerk bereikbaar, want de hub proxyt hem. Zie oidc-web/Dockerfile.
+    oidc-web:
+        build:
+            context: ./oidc-web
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        environment:
+            PORT: {{OIDC_WEB_PORT}}
+        volumes:
+            - ./oidc-web:/app
+            # Anonieme volumes: houdt de node_modules uit het image overeind,
+            # zodat de mount hierboven ze niet wegduwt.
+            - /app/node_modules
+            - /app/.next

@@ -17,9 +17,15 @@ import type { PackageManager } from "../types.js";
 /** Map voor een nieuwe OIDC-server. */
 export const OIDC_DIR = "oidc";
 
+/** De Next.js-app met de schermen van de hub. Draait achter de hub. */
+export const OIDC_WEB_DIR = "oidc-web";
+
 /** Poort van de OIDC-server, naast frontend (3000) en backend (5000). */
 /** Standaardpoort van de hub. De CLI kan een andere kiezen; zie utils/ports.ts. */
 export const OIDC_PORT = 9000;
+
+/** Waar de schermen luisteren. Je bezoekt deze poort nooit zelf. */
+export const OIDC_WEB_PORT = 9100;
 
 export type OidcMode = "new" | "existing" | "none";
 
@@ -33,6 +39,103 @@ export interface OidcChoice {
   clientId: string;
   /** client_secret; bij "new" zelf gegenereerd. */
   clientSecret: string;
+}
+
+/**
+ * Hoe de hub zijn inlog- en registratieschermen rendert.
+ *
+ * De ingebouwde variant is een paar HTML-strings in views.ts: geen extra app,
+ * geen extra poort, en de hub staat volledig op zichzelf. De Next.js-variant
+ * geeft je React, Tailwind en een echt design, maar zet er wel een vierde app
+ * naast die de hub voor je proxyt.
+ */
+export type HubScreens = "builtin" | "nextjs";
+
+export async function askHubScreens(): Promise<HubScreens> {
+  const choice = await p.select({
+    message: "Schermen van de hub?",
+    initialValue: "builtin" as HubScreens,
+    options: [
+      {
+        value: "builtin" as const,
+        label: "Ingebouwd",
+        hint: "HTML uit de hub zelf - niets extra's",
+      },
+      {
+        value: "nextjs" as const,
+        label: "Next.js",
+        hint: `eigen design in ./${OIDC_WEB_DIR}, de hub proxyt hem`,
+      },
+    ],
+  });
+
+  if (p.isCancel(choice)) {
+    p.cancel("Geannuleerd.");
+    process.exit(0);
+  }
+
+  return choice;
+}
+
+/**
+ * Zet de Next.js-schermen naast de hub en laat de hub ernaar proxyen.
+ *
+ * Twee dingen gebeuren hier: de UI-app komt in ./oidc-web, en het bestand
+ * src/screens.ts van de hub wordt vervangen door de proxy-variant. Die naad
+ * bestaat juist hiervoor - de routes van de hub blijven onaangeroerd.
+ */
+export async function scaffoldOidcWeb(
+  choice: OidcChoice,
+  screens: HubScreens,
+  projectDir: string,
+  projectName: string,
+  pm: PackageManager,
+  ports: { oidc: number; oidcWeb: number },
+): Promise<void> {
+  if (choice.mode !== "new" || screens !== "nextjs") return;
+
+  const target = path.join(projectDir, OIDC_WEB_DIR);
+  p.log.step(`Schermen van de hub opzetten in ./${OIDC_WEB_DIR} (poort ${ports.oidcWeb}) ...`);
+
+  await withProgress(
+    "Schermen installeren",
+    async (update) => {
+      copyTemplate("oidc-web", target, {
+        OIDC_PORT: ports.oidc,
+        OIDC_WEB_PORT: ports.oidcWeb,
+        BRAND_NAME: projectName,
+      });
+
+      update("Pakketten installeren");
+      await addDeps(pm, target, ["next@latest", "react@latest", "react-dom@latest"]);
+      await addDevDeps(pm, target, [
+        "typescript@latest",
+        "@types/node@latest",
+        "@types/react@latest",
+        "@types/react-dom@latest",
+        "tailwindcss@latest",
+        "@tailwindcss/postcss@latest",
+      ]);
+
+      update("Hub laten proxyen");
+      const hub = path.join(projectDir, OIDC_DIR);
+      copyTemplate("oidc-web-hub", hub, { OIDC_WEB_PORT: ports.oidcWeb });
+      await addDeps(pm, hub, ["http-proxy-middleware@latest"]);
+
+      mergeEnv(
+        path.join(hub, ".env"),
+        [
+          "# Waar de schermen van de hub draaien. De hub proxyt ernaartoe; jij",
+          "# bezoekt deze poort nooit rechtstreeks.",
+          `OIDC_WEB_URL=http://localhost:${ports.oidcWeb}`,
+          "",
+        ].join("\n"),
+      );
+    },
+    60000,
+  );
+
+  p.log.success(`Schermen van de hub aangemaakt in ./${OIDC_WEB_DIR}.`);
 }
 
 /**

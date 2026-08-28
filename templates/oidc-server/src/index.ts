@@ -3,7 +3,7 @@ import Provider from 'oidc-provider'
 import type { Configuration } from 'oidc-provider'
 import { BRANDING, CLIENTS } from './clients.js'
 import { all as allUsers, findById, register, setBlocked, verify } from './users.js'
-import { loginPage, registerPage } from './views.js'
+import * as screens from './screens.js'
 import { StorageAdapter, initStorage } from './adapter.js'
 import { loadOrCreateJwks } from './keys.js'
 
@@ -80,6 +80,10 @@ const configuration: Configuration = {
 const provider = new Provider(ISSUER, configuration)
 const app = express()
 
+// Geeft de schermlaag de kans om zelf routes te hangen (de Next.js-variant
+// proxyt hier /_next naar de UI-app). Moet voor de eigen routes hieronder.
+screens.attach(app)
+
 // Bewust NIET globaal: oidc-provider parst zelf en waarschuwt als een upstream
 // middleware de body al heeft ingelezen. We hangen hem alleen aan onze routes.
 const form = express.urlencoded({ extended: false })
@@ -106,7 +110,7 @@ app.get('/interaction/:uid', async (req, res, next) => {
         const brand = BRANDING[String(details.params.client_id)]
 
         if (details.prompt.name === 'login') {
-            res.send(loginPage(brand, details.uid))
+            screens.showLogin(req, res, next, { uid: details.uid, brand, step: 'idle' })
             return
         }
 
@@ -121,7 +125,10 @@ app.get('/interaction/:uid', async (req, res, next) => {
 app.get('/interaction/:uid/register', async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
-        res.send(registerPage(BRANDING[String(details.params.client_id)], details.uid))
+        screens.showRegister(req, res, next, {
+            uid: details.uid,
+            brand: BRANDING[String(details.params.client_id)]
+        })
     } catch (err) {
         next(err)
     }
@@ -134,7 +141,7 @@ app.post('/interaction/:uid/login', form, async (req, res, next) => {
         const { user, error } = await verify(String(req.body.email ?? ''), String(req.body.password ?? ''))
 
         if (!user) {
-            res.send(loginPage(brand, details.uid, error))
+            screens.showLogin(req, res, next, { uid: details.uid, brand, step: 'idle', error, email: String(req.body.email ?? '') })
             return
         }
 
@@ -167,7 +174,11 @@ app.post('/interaction/:uid/register', form, async (req, res, next) => {
                 { mergeWithLastSubmission: false }
             )
         } catch (e) {
-            res.send(registerPage(brand, details.uid, e instanceof Error ? e.message : 'Registreren mislukt.'))
+            screens.showRegister(req, res, next, {
+                uid: details.uid,
+                brand,
+                error: e instanceof Error ? e.message : 'Registreren mislukt.'
+            })
         }
     } catch (err) {
         next(err)

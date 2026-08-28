@@ -16,6 +16,10 @@
             DB_PASSWORD: ${DB_PASSWORD}
             DB_NAME: ${OIDC_DB_NAME}
             DB_SSL: "false"
+            # De schermen draaien in hun eigen container; binnen het netwerk
+            # heet die gewoon oidc-web. Staat deze dienst er niet, dan wordt
+            # deze variabele genegeerd.
+            OIDC_WEB_URL: http://oidc-web:{{OIDC_WEB_PORT}}
         ports:
             - "{{OIDC_PORT}}:{{OIDC_PORT}}"
         volumes:

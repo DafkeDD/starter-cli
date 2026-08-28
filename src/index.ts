@@ -22,8 +22,11 @@ import {
   scaffoldOidcDatabase,
   scaffoldOidcClient,
   scaffoldOidcFrontend,
+  askHubScreens,
+  scaffoldOidcWeb,
   OIDC_DIR,
   OIDC_PORT,
+  OIDC_WEB_DIR,
 } from "./steps/oidc.js";
 import { scaffoldDocker } from "./steps/docker.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
@@ -56,6 +59,8 @@ async function main(): Promise<void> {
   const customUi = await askCustomUi(frontend);
   const backend = await askBackend();
   const oidc = await askOidc(defaultName);
+  // Alleen relevant als dit project de hub bouwt; wie aansluit erft de schermen.
+  const hubScreens = oidc.mode === "new" ? await askHubScreens() : "builtin";
   const github = await askGithub(defaultName);
   // De databasevragen komen bewust later, als alles geinstalleerd is.
 
@@ -72,6 +77,7 @@ async function main(): Promise<void> {
   if (frontend === "nextjs") needed.push("frontend");
   if (backend !== "none") needed.push("backend");
   if (oidc.mode === "new") needed.push("oidc");
+  if (hubScreens === "nextjs") needed.push("oidcWeb");
 
   let ports = await resolvePorts(projectDir, needed);
 
@@ -84,6 +90,9 @@ async function main(): Promise<void> {
   }
   if (oidc.mode === "new") {
     assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
+  }
+  if (hubScreens === "nextjs") {
+    assertEmpty(path.join(projectDir, OIDC_WEB_DIR), OIDC_WEB_DIR);
   }
 
   // ---- Overzicht ----------------------------------------------------------
@@ -115,6 +124,15 @@ async function main(): Promise<void> {
             ? `${oidc.issuer}${pc.dim(oidc.isAdminPanel ? "  (dit is het beheerpaneel)" : "")}`
             : "geen",
       )}`,
+      ...(oidc.mode === "new"
+        ? [
+            `${pc.dim("Hub-UI  ")}  ${pc.cyan(
+              hubScreens === "nextjs"
+                ? `Next.js${pc.dim(`  -> ./${OIDC_WEB_DIR} (poort ${ports.oidcWeb})`)}`
+                : "ingebouwd",
+            )}`,
+          ]
+        : []),
       `${pc.dim("Prettier")}  ${pc.cyan("frontend + backend")}${pc.dim("  zelfde projectsettings")}`,
       `${pc.dim("GitHub  ")}  ${pc.cyan(
         github.useGithub
@@ -143,6 +161,10 @@ async function main(): Promise<void> {
     oidc: ports.oidc,
     backend: ports.backend,
     frontend: ports.frontend,
+  });
+  await scaffoldOidcWeb(oidc, hubScreens, projectDir, defaultName, PACKAGE_MANAGER, {
+    oidc: ports.oidc,
+    oidcWeb: ports.oidcWeb,
   });
   await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER, {
     backend: ports.backend,
@@ -207,6 +229,7 @@ async function main(): Promise<void> {
       oidc: oidc.mode === "new",
       database: backendDb === "docker",
       oidcDatabase: oidcDb === "docker",
+      oidcWeb: hubScreens === "nextjs",
     },
     projectDir,
     {
@@ -290,6 +313,13 @@ async function main(): Promise<void> {
     ]);
   } else if (oidcDb === "docker" && !gestart) {
     steps.push([`cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:up`, "database van de hub"]);
+  }
+
+  if (hubScreens === "nextjs") {
+    steps.push([
+      `cd ${OIDC_WEB_DIR} && ${PACKAGE_MANAGER} run dev`,
+      "de schermen van de hub",
+    ]);
   }
 
   if (oidc.mode === "new") {

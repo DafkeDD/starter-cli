@@ -21,6 +21,8 @@ export interface DockerParts {
   database: boolean;
   /** Heeft de OIDC-hub een eigen database nodig? */
   oidcDatabase: boolean;
+  /** Rendert de hub zijn schermen met de Next.js-app ernaast? */
+  oidcWeb: boolean;
 }
 
 /**
@@ -69,6 +71,7 @@ export function scaffoldDocker(
     FRONTEND_PORT: ports.frontend,
     BACKEND_PORT: ports.backend,
     OIDC_PORT: ports.oidc,
+    OIDC_WEB_PORT: ports.oidcWeb,
     BACKEND_DEV_SCRIPT: options.backendDevScript,
     PGADMIN_PORT,
     DB_NAME: "",
@@ -82,6 +85,7 @@ export function scaffoldDocker(
   if (parts.frontend) apps.push(["frontend", "frontend.Dockerfile"]);
   if (parts.backend) apps.push(["backend", "backend.Dockerfile"]);
   if (parts.oidc) apps.push(["oidc", "oidc.Dockerfile"]);
+  if (parts.oidcWeb) apps.push(["oidc-web", "oidc-web.Dockerfile"]);
 
   for (const [dir, template] of apps) {
     const target = path.join(projectDir, dir);
@@ -100,6 +104,7 @@ export function scaffoldDocker(
   const pieces = [fragment("compose-head.yml", vars)];
   if (parts.database || parts.oidcDatabase) pieces.push(fragment("compose-db.yml", vars));
   if (parts.oidc) pieces.push(fragment("compose-oidc.yml", vars));
+  if (parts.oidcWeb) pieces.push(fragment("compose-oidc-web.yml", vars));
   if (parts.backend) pieces.push(fragment("compose-backend.yml", vars));
   if (parts.frontend) pieces.push(fragment("compose-frontend.yml", vars));
   const heeftDatabase = parts.database || parts.oidcDatabase;
