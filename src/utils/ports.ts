@@ -139,23 +139,18 @@ function somethingAnswers(port: number): Promise<boolean> {
  */
 async function dockerClaimedPorts(): Promise<Set<number>> {
   const claimed = new Set<number>();
-  const options = { shell: process.platform === "win32", timeout: 10000 };
 
   try {
-    const { stdout: ids } = await run("docker", ["ps", "-a", "--format", "{{.ID}}"], options);
+    const ids = await docker(["ps", "-a", "--format", "{{.ID}}"]);
     const containers = ids.split(/\r?\n/).filter(Boolean);
     if (containers.length === 0) return claimed;
 
-    const { stdout } = await run(
-      "docker",
-      [
-        "inspect",
-        "--format",
-        "{{range $port, $binding := .HostConfig.PortBindings}}{{range $binding}}{{.HostPort}} {{end}}{{end}}",
-        ...containers,
-      ],
-      options,
-    );
+    const stdout = await docker([
+      "inspect",
+      "--format",
+      "{{range $port, $binding := .HostConfig.PortBindings}}{{range $binding}}{{.HostPort}} {{end}}{{end}}",
+      ...containers,
+    ]);
 
     for (const match of stdout.matchAll(/\d+/g)) {
       claimed.add(Number(match[0]));
@@ -165,6 +160,20 @@ async function dockerClaimedPorts(): Promise<Set<number>> {
   }
 
   return claimed;
+}
+
+/**
+ * Draait `docker ...` en geeft de uitvoer terug.
+ *
+ * Op Windows heet het docker.exe en niet docker.cmd, dus hier is geen shell
+ * nodig. Dat scheelt ook de waarschuwing die Node sinds versie 24 geeft als je
+ * een argumentenlijst met shell: true combineert (DEP0190) - en belangrijker:
+ * zonder shell komt het format-argument met zijn accolades en spaties gewoon
+ * ongeschonden aan.
+ */
+async function docker(args: string[]): Promise<string> {
+  const { stdout } = await run("docker", args, { timeout: 10000 });
+  return stdout;
 }
 
 /** Leest het register. Stuk of afwezig? Dan beginnen we gewoon leeg. */
