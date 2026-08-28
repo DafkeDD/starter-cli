@@ -446,7 +446,17 @@ const OIDC_MESSAGES: Record<string, Record<string, Record<string, string>>> = {
       button: "Continue to sign in",
       hint: "Already signed in elsewhere? Then you come straight back in.",
     },
-    Auth: { login: "Sign in", logout: "Sign out", admin: "admin" },
+    Auth: {
+      login: "Sign in",
+      logout: "Sign out",
+      admin: "admin",
+      signedInAs: "Signed in as",
+      notSignedIn: "You are not signed in yet.",
+      name: "Name",
+      email: "Email",
+      role: "Role",
+      id: "User ID",
+    },
     Admin: {
       title: "Administration",
       users: "Users ({count})",
@@ -475,7 +485,17 @@ const OIDC_MESSAGES: Record<string, Record<string, Record<string, string>>> = {
       button: "Weiter zur Anmeldung",
       hint: "Schon woanders angemeldet? Dann kommst du direkt rein.",
     },
-    Auth: { login: "Anmelden", logout: "Abmelden", admin: "Admin" },
+    Auth: {
+      login: "Anmelden",
+      logout: "Abmelden",
+      admin: "Admin",
+      signedInAs: "Angemeldet als",
+      notSignedIn: "Du bist noch nicht angemeldet.",
+      name: "Name",
+      email: "E-Mail",
+      role: "Rolle",
+      id: "Benutzer-ID",
+    },
     Admin: {
       title: "Verwaltung",
       users: "Benutzer ({count})",
@@ -504,7 +524,17 @@ const OIDC_MESSAGES: Record<string, Record<string, Record<string, string>>> = {
       button: "Verder met inloggen",
       hint: "Al ergens anders ingelogd? Dan kom je meteen binnen.",
     },
-    Auth: { login: "Inloggen", logout: "Uitloggen", admin: "beheerder" },
+    Auth: {
+      login: "Inloggen",
+      logout: "Uitloggen",
+      admin: "beheerder",
+      signedInAs: "Ingelogd als",
+      notSignedIn: "Je bent nog niet ingelogd.",
+      name: "Naam",
+      email: "E-mail",
+      role: "Rol",
+      id: "Gebruikers-ID",
+    },
     Admin: {
       title: "Beheer",
       users: "Gebruikers ({count})",
@@ -533,7 +563,17 @@ const OIDC_MESSAGES: Record<string, Record<string, Record<string, string>>> = {
       button: "Continuer vers la connexion",
       hint: "Déjà connecté ailleurs ? Vous entrez directement.",
     },
-    Auth: { login: "Connexion", logout: "Déconnexion", admin: "admin" },
+    Auth: {
+      login: "Connexion",
+      logout: "Déconnexion",
+      admin: "admin",
+      signedInAs: "Connecté en tant que",
+      notSignedIn: "Vous n'êtes pas encore connecté.",
+      name: "Nom",
+      email: "E-mail",
+      role: "Rôle",
+      id: "Identifiant",
+    },
     Admin: {
       title: "Administration",
       users: "Utilisateurs ({count})",
@@ -578,10 +618,63 @@ export function scaffoldOidcFrontend(
   writeFrontendEnv(target, backendPort);
   mergeMessages(target, choice.isAdminPanel);
   patchProxy(target, choice.isAdminPanel);
+  patchHomePage(target);
 
   p.log.success(
     `Loginpagina${choice.isAdminPanel ? " en beheerscherm" : ""} toegevoegd aan ./${FRONTEND_DIR}.`,
   );
+}
+
+/**
+ * Zet de ingelogde gebruiker op de homepagina.
+ *
+ * Zonder dit staan UserBadge en CurrentUser er wel, maar hangen ze nergens in -
+ * dan log je in, kom je terug op / en zie je niets veranderen. We haken aan op
+ * twee regels die deze CLI zelf in page.tsx heeft geschreven, dus die staan er
+ * letterlijk zo. Wijk je daarvan af, dan slaan we het over met een melding in
+ * plaats van je bestand te verminken.
+ */
+function patchHomePage(target: string): void {
+  const file = path.join(target, "src", "app", "[locale]", "page.tsx");
+  if (!fs.existsSync(file)) return;
+
+  let src = fs.readFileSync(file, "utf8");
+  if (src.includes("CurrentUser")) return;
+
+  const importAnchor = "import ThemeToggle from '@/components/theme/ThemeToggle'";
+  const mainAnchor =
+    "<main className='flex min-h-screen flex-col items-center justify-center gap-8 p-8'>";
+  const localeAnchor =
+    "<p className='text-muted-foreground mt-8 font-mono text-xs'>{t('activeLocale', { locale })}</p>";
+
+  if (!src.includes(importAnchor) || !src.includes(mainAnchor) || !src.includes(localeAnchor)) {
+    p.log.warn(
+      "De homepagina ziet er anders uit dan verwacht; UserBadge en CurrentUser zijn niet\n" +
+        "ingehangen. Zet ze zelf in src/app/[locale]/page.tsx:\n" +
+        "  import UserBadge from '@/components/auth/UserBadge'\n" +
+        "  import CurrentUser from '@/components/auth/CurrentUser'",
+    );
+    return;
+  }
+
+  // Inlog-/uitlogknop rechtsboven, boven de kaart.
+  src = src.replace(
+    importAnchor,
+    `${importAnchor}\nimport UserBadge from '@/components/auth/UserBadge'\nimport CurrentUser from '@/components/auth/CurrentUser'`,
+  );
+
+  src = src.replace(
+    mainAnchor,
+    `${mainAnchor}\n            <header className='flex w-full max-w-xl justify-end'>\n                <UserBadge />\n            </header>\n`,
+  );
+
+  // En de gegevens zelf in de kaart, boven de voetnoten.
+  src = src.replace(
+    localeAnchor,
+    `<div className='mt-8'>\n                    <CurrentUser />\n                </div>\n\n                ${localeAnchor}`,
+  );
+
+  fs.writeFileSync(file, src, "utf8");
 }
 
 /** De frontend moet weten waar de backend draait. */
