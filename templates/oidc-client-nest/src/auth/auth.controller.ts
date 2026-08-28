@@ -1,8 +1,8 @@
 import { Controller, Get, Req, Res } from '@nestjs/common'
 import type { Response } from 'express'
-import { AuthService } from './auth.service'
-import { FRONTEND_URL } from './oidc'
-import type { SessionRequest, SessionUser } from './oidc'
+import { AuthService } from './auth.service.js'
+import { FRONTEND_URL } from './oidc.js'
+import type { SessionRequest, SessionUser } from './oidc.js'
 
 /**
  * De OIDC-routes van deze app.

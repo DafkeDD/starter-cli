@@ -124,8 +124,8 @@ export function scaffoldDocker(
       path.join(scripts, "pgadmin-servers.json"),
       fragment("pgadmin-servers.json", {
         ...vars,
-        DB_NAME: readEnv(bron, "DB_NAME", "app"),
-        DB_USER: readEnv(bron, "DB_USER", "app"),
+        DB_NAME: readEnv(bron, "DB_NAME", "app01"),
+        DB_USER: readEnv(bron, "DB_USER", "app01"),
       }),
       "utf8",
     );
@@ -159,9 +159,9 @@ export function scaffoldDocker(
     "# te vullen. Dit is NIET de .env van je apps - die staan in backend/ en",
     "# oidc/ en worden binnen de containers overschreven door compose.",
     "",
-    `DB_USER=${readEnv(anyEnv, "DB_USER", "app")}`,
+    `DB_USER=${readEnv(anyEnv, "DB_USER", "app01")}`,
     `DB_PASSWORD=${readEnv(anyEnv, "DB_PASSWORD")}`,
-    `DB_NAME=${readEnv(backendEnv, "DB_NAME", "app")}`,
+    `DB_NAME=${readEnv(backendEnv, "DB_NAME", "app01")}`,
     `OIDC_DB_NAME=${readEnv(oidcEnv, "DB_NAME", "oidc")}`,
     `DB_PORT=${ports.db}`,
     "",

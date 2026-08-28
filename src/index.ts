@@ -11,8 +11,11 @@ import {
   scaffoldBackendDatabase,
   databaseLabel,
   offerToStart,
+  targetFor,
+  askDbCredentials,
   type Database,
 } from "./steps/database.js";
+import { createLocalDatabases } from "./steps/localdb.js";
 import {
   askOidc,
   scaffoldOidcServer,
@@ -26,6 +29,7 @@ import { scaffoldDocker } from "./steps/docker.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import { resolvePorts, isShifted, type PortName } from "./utils/ports.js";
+import { resolveDbCredentials, rememberOidcDb } from "./utils/dbnames.js";
 import type { PackageManager } from "./types.js";
 
 /** Package manager voor de gegenereerde projecten. */
@@ -160,17 +164,40 @@ async function main(): Promise<void> {
     ports = await resolvePorts(projectDir, needed);
   }
 
+  // Namen en wachtwoord voor dit project: database app01, rol app01. Een tweede
+  // project dat je scaffold krijgt app02. Dat moet wel, want draai je PostgreSQL
+  // zelf dan zitten al je projecten op dezelfde server.
+  //
+  // De hub krijgt geen nummer: die database heet gewoon "oidc", want er draait
+  // er maar een - net zoals hij op poort 9000 blijft staan.
+  const credentials = await askDbCredentials(
+    resolveDbCredentials(projectDir, oidcDb !== "none"),
+    { app: backendDb !== "none", oidc: oidcDb !== "none" },
+  );
+  // Koos je zelf een naam voor de hub, dan moet het register die kennen -
+  // anders stelt een volgende hub dezelfde naam voor.
+  if (oidcDb !== "none") rememberOidcDb(projectDir, credentials.oidcDb);
+
   await scaffoldBackendDatabase(
     backendDb,
     projectDir,
     BACKEND_DIR,
     backend,
     PACKAGE_MANAGER,
+    targetFor(credentials, "app"),
     ports.db,
     ports.backend,
   );
   // Dezelfde poort als de backend: dezelfde container, andere database erin.
-  await scaffoldOidcDatabase(oidc, projectDir, PACKAGE_MANAGER, oidcDb, ports.db, ports.oidc);
+  await scaffoldOidcDatabase(
+    oidc,
+    projectDir,
+    PACKAGE_MANAGER,
+    oidcDb,
+    targetFor(credentials, "oidc"),
+    ports.db,
+    ports.oidc,
+  );
 
   scaffoldDocker(
     {
@@ -187,14 +214,34 @@ async function main(): Promise<void> {
       backendDevScript: backend === "nestjs" ? "start:dev" : "dev",
     },
   );
+  // ---- Lokale database aanmaken -------------------------------------------
+  // In Docker doet het image dit. Draai je PostgreSQL zelf, dan bestaat de rol
+  // app01 nog niet en zou de eerste migratie stukgaan op "role does not exist".
+  const lokaal = [
+    ...(backendDb === "local" ? [credentials.appDb] : []),
+    ...(oidcDb === "local" ? [credentials.oidcDb] : []),
+  ];
+
+  if (lokaal.length > 0) {
+    await createLocalDatabases({
+      // pg staat in de app die we net geinstalleerd hebben; de CLI zelf sleept
+      // geen databasedriver mee.
+      moduleDir: path.join(projectDir, backendDb === "local" ? BACKEND_DIR : OIDC_DIR),
+      host: "127.0.0.1",
+      port: 5432,
+      user: credentials.user,
+      password: credentials.password,
+      databases: lokaal,
+    });
+  }
+
   // ---- Meteen starten? ----------------------------------------------------
   const gestart = await offerToStart(
-    backendDb === "docker" ? "docker" : oidcDb,
-    projectDir,
     [
-      ...(backendDb === "docker" ? [BACKEND_DIR] : []),
-      ...(oidcDb === "docker" ? [OIDC_DIR] : []),
+      { dir: BACKEND_DIR, database: backendDb },
+      { dir: OIDC_DIR, database: oidcDb },
     ],
+    projectDir,
     PACKAGE_MANAGER,
   );
 
@@ -210,10 +257,10 @@ async function main(): Promise<void> {
     ]);
   }
   // Is de database al gestart, dan hoeft die stap er niet meer bij.
-  if (backendDb === "local") {
+  if (backendDb === "local" && !gestart) {
     steps.push([
       `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run db:migrate`,
-      "eerst zelf de database aanmaken",
+      `database ${credentials.appDb}`,
     ]);
   } else if (backendDb === "docker" && !gestart) {
     steps.push([
@@ -234,10 +281,10 @@ async function main(): Promise<void> {
     ]);
   }
 
-  if (oidcDb === "local") {
+  if (oidcDb === "local" && !gestart) {
     steps.push([
       `cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:migrate`,
-      "database oidc zelf aanmaken",
+      `database ${credentials.oidcDb}`,
     ]);
   } else if (oidcDb === "docker" && !gestart) {
     steps.push([`cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:up`, "database van de hub"]);

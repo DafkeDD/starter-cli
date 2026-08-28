@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common'
-import { DbService } from './db.service'
-import { HealthController } from './health.controller'
+import { DbService } from './db.service.js'
+import { HealthController } from './health.controller.js'
 
 /**
  * Maakt de database in de hele applicatie beschikbaar.

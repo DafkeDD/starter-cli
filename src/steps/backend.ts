@@ -227,7 +227,7 @@ function patchNestPort(mainPath: string, port: number): void {
   if (!src.includes("./env")) {
     src =
       "// Leest .env in. Moet de eerste import blijven - zie src/env.ts.\n" +
-      "import './env'\n\n" +
+      "import './env.js'\n\n" +
       src;
   }
 

@@ -84,6 +84,27 @@ async function connectWithRetry(pool: PgPool, config: DbConfig): Promise<void> {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
 
+            // Een verkeerd wachtwoord lost zichzelf ook niet op met wachten.
+            //
+            // De meest voorkomende oorzaak is een volume van een vorige keer:
+            // PostgreSQL zet het wachtwoord alleen bij de ALLEREERSTE start van
+            // een leeg volume. Wijzig je daarna .env, dan blijft de database
+            // het oude wachtwoord gebruiken. "docker compose down" ruimt het
+            // volume niet op - daar is -v voor nodig.
+            if (/password authentication failed/i.test(message)) {
+                throw new Error(
+                    `${message}\n\n` +
+                        "Bijna altijd komt dit door een database van een vorige keer.\n" +
+                        "PostgreSQL zet het wachtwoord alleen bij de eerste start van een leeg\n" +
+                        "volume; daarna verandert het niet meer mee met je .env.\n\n" +
+                        "Opnieuw opbouwen (LET OP: dit wist de data):\n" +
+                        "  npm run db:reset\n\n" +
+                        "Of met de hand:\n" +
+                        "  docker compose -f ../docker-compose.yml down -v\n" +
+                        "  npm run db:up",
+                );
+            }
+
             // Bestaat de server wel maar de database niet, dan heeft opnieuw
             // proberen geen zin - dat lost zichzelf niet op.
             if (/database .* does not exist/i.test(message)) {

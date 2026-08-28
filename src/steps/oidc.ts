@@ -7,7 +7,7 @@ import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
 import { copyTemplate } from "../utils/template.js";
 import { mergeEnv } from "../utils/env.js";
-import { scaffoldDatabase, databaseLabel, type Database } from "./database.js";
+import { scaffoldDatabase, databaseLabel, type Database, type DbTarget } from "./database.js";
 import { FRONTEND_DIR, FRONTEND_PORT } from "./frontend.js";
 import type { Frontend } from "./frontend.js";
 import { BACKEND_DIR, BACKEND_PORT } from "./backend.js";
@@ -359,7 +359,7 @@ function patchNestModule(target: string): void {
     if (!src.includes("AuthModule")) {
       src = src.replace(
         "import { Module } from '@nestjs/common'",
-        "import { Module } from '@nestjs/common'\nimport { AuthModule } from './auth/auth.module'",
+        "import { Module } from '@nestjs/common'\nimport { AuthModule } from './auth/auth.module.js'",
       );
       src = src.replace(/imports:\s*\[([^\]]*)\]/, (_m, inner: string) =>
         inner.trim() ? `imports: [${inner.trim()}, AuthModule]` : "imports: [AuthModule]",
@@ -379,7 +379,7 @@ function patchNestModule(target: string): void {
     [
       "import { NestFactory } from '@nestjs/core'",
       "import cookieSession from 'cookie-session'",
-      "import { FRONTEND_URL } from './auth/oidc'",
+      "import { FRONTEND_URL } from './auth/oidc.js'",
     ].join("\n"),
   );
 
@@ -425,7 +425,8 @@ function loadEnvInCode(target: string, backend: Backend): void {
   const src = fs.readFileSync(file, "utf8");
   if (src.includes("./env")) return;
 
-  const line = isExpress ? "import './env.js'" : "import './env'";
+  // Zowel Express als NestJS 12 draaien op ESM, dus altijd met extensie.
+  const line = "import './env.js'";
   const comment = "// Leest .env in. Moet de eerste import blijven — zie src/env.ts.";
 
   fs.writeFileSync(file, comment + "\n" + line + "\n" + src, "utf8");
@@ -710,6 +711,7 @@ export async function scaffoldOidcDatabase(
   projectDir: string,
   pm: PackageManager,
   database: Database,
+  db: DbTarget,
   dbPort: number,
   oidcPort: number,
 ): Promise<void> {
@@ -721,8 +723,9 @@ export async function scaffoldOidcDatabase(
   await withProgress(
     "Databaselaag opzetten",
     async (update) => {
-      // Eigen databasenaam: de hub deelt niets met de backend.
-      await scaffoldDatabase(database, target, "none", pm, update, "oidc", dbPort, oidcPort);
+      // Eigen database ("oidc"), zelfde rol als de backend: de hub deelt geen
+      // tabellen met je app, wel het account waarmee je erin kijkt.
+      await scaffoldDatabase(database, target, "none", pm, update, db, dbPort, oidcPort);
 
       update("OIDC-opslag naar de database verhuizen");
       // Overschrijft adapter.ts en users.ts met de databaseversies en zet de

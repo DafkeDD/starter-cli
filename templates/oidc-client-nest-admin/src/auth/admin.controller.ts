@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Post, Req, Res, Body } from '@nestjs/common'
 import type { Response } from 'express'
-import { HUB_ISSUER } from './oidc'
-import type { SessionRequest, SessionUser } from './oidc'
+import { HUB_ISSUER } from './oidc.js'
+import type { SessionRequest, SessionUser } from './oidc.js'
 
 /**
  * Dit project IS het beheerpaneel van de OIDC-server.

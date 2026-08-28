@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { FRONTEND_URL, getClient, getOidcConfig, REDIRECT_URI } from './oidc'
-import type { SessionRequest, SessionUser } from './oidc'
+import { FRONTEND_URL, getClient, getOidcConfig, REDIRECT_URI } from './oidc.js'
+import type { SessionRequest, SessionUser } from './oidc.js'
 
 @Injectable()
 export class AuthService {

@@ -1,5 +1,5 @@
 import { Controller, Get, HttpStatus, HttpException } from '@nestjs/common'
-import { DbService } from './db.service'
+import { DbService } from './db.service.js'
 import { sql } from './sql.js'
 
 interface Health {
