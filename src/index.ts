@@ -173,6 +173,7 @@ async function main(): Promise<void> {
   const credentials = await askDbCredentials(
     resolveDbCredentials(projectDir, oidcDb !== "none"),
     { app: backendDb !== "none", oidc: oidcDb !== "none" },
+    backendDb === "local" || oidcDb === "local",
   );
   // Koos je zelf een naam voor de hub, dan moet het register die kennen -
   // anders stelt een volgende hub dezelfde naam voor.
@@ -215,8 +216,9 @@ async function main(): Promise<void> {
     },
   );
   // ---- Lokale database aanmaken -------------------------------------------
-  // In Docker doet het image dit. Draai je PostgreSQL zelf, dan bestaat de rol
-  // app01 nog niet en zou de eerste migratie stukgaan op "role does not exist".
+  // Alleen de database. Je PostgreSQL draait al en je account bestaat al; het
+  // enige dat ontbreekt is de database, en zonder die faalt de eerste migratie
+  // met "database app01 does not exist".
   const lokaal = [
     ...(backendDb === "local" ? [credentials.appDb] : []),
     ...(oidcDb === "local" ? [credentials.oidcDb] : []),

@@ -38,6 +38,8 @@ const LABEL = "PostgreSQL";
 export async function askDbCredentials(
   defaults: DbCredentials,
   needs: { app: boolean; oidc: boolean },
+  /** Draai je PostgreSQL zelf? Dan bestaat je account al en verzinnen we er geen. */
+  local: boolean,
 ): Promise<DbCredentials> {
   if (!needs.app && !needs.oidc) return defaults;
 
@@ -60,18 +62,23 @@ export async function askDbCredentials(
     ? await askName("Naam van de database van de OIDC-hub", defaults.oidcDb, "er draait er maar een")
     : defaults.oidcDb;
 
-  // Standaard heet de rol net zo als de database. Kies je "webshop", dan stelt
-  // hij "webshop" voor - niet nog steeds app01.
-  const user = await askName(
-    "Gebruiker waarmee de apps inloggen",
-    needs.app ? appDb : defaults.user,
-    "krijgt alleen rechten op deze databases",
-  );
+  // Lokaal bestaat je account al - dat van je eigen PostgreSQL. Daar verzinnen
+  // we niets bij; we vragen gewoon waarmee jij inlogt. In Docker bestaat er nog
+  // niets, dus daar maakt het image het account aan uit deze twee waarden.
+  const user = local
+    ? await askName("Gebruiker van je PostgreSQL", "postgres", "het account dat je al hebt")
+    : await askName(
+        "Gebruiker die in de container wordt aangemaakt",
+        needs.app ? appDb : defaults.user,
+        "krijgt alleen rechten op deze databases",
+      );
 
   const password = await p.text({
-    message: "Wachtwoord van die gebruiker",
-    initialValue: defaults.password,
-    validate: validatePassword,
+    message: local ? `Wachtwoord van ${user}` : "Wachtwoord van die gebruiker",
+    // Lokaal weten we je wachtwoord niet, dus stellen we niets voor. In Docker
+    // maken we het aan, en dan is een gegenereerd wachtwoord het beste antwoord.
+    ...(local ? { placeholder: "je bestaande wachtwoord" } : { initialValue: defaults.password }),
+    validate: local ? validateExistingPassword : validatePassword,
   });
 
   if (p.isCancel(password)) {
@@ -79,7 +86,7 @@ export async function askDbCredentials(
     process.exit(0);
   }
 
-  return { ...defaults, appDb, oidcDb, user, password: String(password).trim() };
+  return { ...defaults, appDb, oidcDb, user, password: String(password) };
 }
 
 /** Een vraag naar een naam die PostgreSQL zonder aanhalingstekens slikt. */
@@ -126,6 +133,22 @@ function validateName(value: string): string | undefined {
  *   % en &   cmd.exe op Windows vult in / knipt het commando doormidden.
  *   ' " ` \\  breken de string in SQL, YAML of de shell.
  *   spatie   .env-waarden met spaties lezen niet betrouwbaar in.
+ */
+function validateExistingPassword(value: string): string | undefined {
+  if (!value) return "Mag niet leeg zijn.";
+  // Een waarde met allebei de soorten aanhalingstekens krijg je niet heel door
+  // een .env heen; Node kent daar geen escapes.
+  if (value.includes('"') && value.includes("'")) {
+    return "Niet allebei ' en \" erin: zo'n waarde overleeft .env niet.";
+  }
+  return undefined;
+}
+
+/**
+ * Voor een wachtwoord dat WIJ aanmaken mogen we streng zijn.
+ *
+ * Je eigen bestaande wachtwoord toetsen we hier niet aan: dat is er nu eenmaal,
+ * en daar krijgt het aanhalingstekens omheen in .env (zie writeEnv).
  */
 function validatePassword(value: string): string | undefined {
   const secret = value.trim();
@@ -266,15 +289,14 @@ function writeEnv(
             "# ontwikkelmachine.",
           ]
         : [
-            "# PostgreSQL die je zelf draait. De CLI heeft de rol en de database",
-            "# hieronder voor je aangemaakt. Zelf opnieuw doen kan zo (als postgres):",
-            `#   CREATE ROLE "${db.user}" LOGIN PASSWORD '...';`,
-            `#   CREATE DATABASE "${dbName}" OWNER "${db.user}";`,
+            "# PostgreSQL die je zelf draait, met je eigen account. De CLI heeft",
+            "# alleen de database aangemaakt:",
+            `#   CREATE DATABASE "${dbName}";`,
           ]),
       "DB_HOST=127.0.0.1",
       `DB_PORT=${dbPort}`,
       `DB_USER=${db.user}`,
-      `DB_PASSWORD=${secret}`,
+      `DB_PASSWORD=${envSafe(secret)}`,
       `DB_NAME=${dbName}`,
       "",
       "# Versleutelde verbinding. Zet dit op true voor een gehoste database;",
@@ -296,6 +318,23 @@ function writeEnv(
   if (!current.split(/\r?\n/).includes(".env")) {
     fs.writeFileSync(gitignore, current.trimEnd() + "\n.env\n", "utf8");
   }
+}
+
+/**
+ * Een .env-waarde die heel aankomt.
+ *
+ * Node kapt een waarde af bij een #, en spaties lopen ook niet altijd goed af.
+ * Aanhalingstekens eromheen lossen dat op; Node haalt ze er bij het inlezen
+ * weer af. Backslashes helpen niet - de parser van Node kent geen escapes - dus
+ * kiezen we het soort aanhalingsteken dat NIET in de waarde zit.
+ *
+ * Zitten ze er allebei in, dan is er geen goede vorm; validateExistingPassword
+ * houdt dat tegen voor het zover komt.
+ */
+function envSafe(value: string): string {
+  if (!/[#\s"'`]/.test(value)) return value;
+  if (!value.includes('"')) return `"${value}"`;
+  return `'${value}'`;
 }
 
 /**
@@ -411,7 +450,7 @@ export async function scaffoldBackendDatabase(
   p.log.info(
     database === "docker"
       ? `Database starten en migreren in een keer:\n  cd ${backendDir} && ${pm} run db:up`
-      : `Database ${db.name}, gebruiker ${db.user}. Migreren:\n` +
+      : `Database ${db.name}, ingelogd als ${db.user}. Migreren:\n` +
           `  cd ${backendDir} && ${pm} run db:migrate`,
   );
 }

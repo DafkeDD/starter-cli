@@ -4,81 +4,80 @@ import { pathToFileURL } from "node:url";
 import * as p from "@clack/prompts";
 
 /**
- * De rol en de databases aanmaken op een PostgreSQL die je zelf draait.
+ * De database aanmaken op een PostgreSQL die je zelf draait.
  *
- * In Docker doet het image dit: POSTGRES_USER/POSTGRES_DB maken de eerste
- * database, en het initscript de tweede. Draai je PostgreSQL zelf, dan gebeurt
- * er niets - en dan kreeg je vroeger een .env met DB_USER=postgres en een
- * verzonnen wachtwoord dat nergens op sloeg. Eerste `npm run db:migrate`:
- * "password authentication failed".
+ * Meer niet. Geen rol, geen gebruiker, geen server - je PostgreSQL staat er al
+ * en je account bestaat al. Het enige dat ontbreekt is de database zelf, en die
+ * maken we hier bij:
  *
- * Daarom vraagt de CLI hier eenmalig om je superuser, en maakt hij zelf:
+ *   CREATE DATABASE "app01";
  *
- *   CREATE ROLE app01 LOGIN PASSWORD '...';
- *   CREATE DATABASE app01      OWNER app01;
- *   CREATE DATABASE app01_oidc OWNER app01;
+ * We loggen daarvoor in met precies het account dat straks ook in .env staat.
+ * Heeft dat account het recht CREATEDB niet, dan zeggen we dat - dan maak je
+ * hem zelf aan of gebruik je een account dat het wel mag.
  *
- * De rol is bewust GEEN superuser. Je app hoort niet met postgres-rechten in je
- * database te zitten, ook niet in ontwikkeling.
- *
- * Sinds PostgreSQL 15 is het public-schema van een nieuwe database eigendom van
- * pg_database_owner, en dat is de OWNER hierboven. Extra GRANTs zijn dus niet
- * nodig; app01 mag gewoon tabellen maken in zijn eigen database.
+ * In Docker gaat het anders: daar bestaat er nog niets, dus maakt het
+ * postgres-image bij de eerste start zowel het account als de database aan uit
+ * POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB.
  */
 export interface LocalDbPlan {
   /** Map met pg in node_modules - de backend of de hub, die staan er al. */
   moduleDir: string;
   host: string;
   port: number;
-  /** De rol die we aanmaken. */
+  /** Het bestaande account waarmee we inloggen; hetzelfde als in .env. */
   user: string;
   password: string;
-  /** De databases die we aanmaken, allemaal met `user` als eigenaar. */
+  /** De databases die nog moeten bestaan. */
   databases: string[];
 }
 
 export async function createLocalDatabases(plan: LocalDbPlan): Promise<boolean> {
   if (plan.databases.length === 0) return false;
 
-  p.log.step("PostgreSQL klaarzetten ...");
+  p.log.step("Database aanmaken ...");
 
-  p.log.info(
-    `Aan te maken:\n` +
-      `  rol        ${plan.user}\n` +
-      plan.databases.map((db) => `  database   ${db}  (eigenaar ${plan.user})`).join("\n") +
-      `\n\nDaarvoor is eenmalig een account met rechten nodig - meestal postgres.`,
-  );
-
-  const doIt = await p.confirm({
-    message: "Zal ik dat nu aanmaken?",
-    initialValue: true,
-  });
-
-  if (p.isCancel(doIt) || !doIt) {
-    p.log.info(manualSteps(plan));
+  let bestaand: string[];
+  try {
+    bestaand = await existingDatabases(plan);
+  } catch (err) {
+    p.log.warn(`${connectionProblem(plan, err)}\n\n${manualSteps(plan)}`);
     return false;
   }
 
-  const superUser = await p.text({
-    message: "Naam van je PostgreSQL-superuser",
-    initialValue: "postgres",
-    placeholder: "postgres",
-  });
-  if (p.isCancel(superUser)) {
-    p.log.info(manualSteps(plan));
-    return false;
-  }
+  // Bestaat er al iets van een vorige ronde? Een lege projectmap betekent geen
+  // lege database - die staat op je server, niet in je map. Zonder deze vraag
+  // scaffold je een fris project bovenop de tabellen van de vorige keer, en
+  // meldt db:migrate doodleuk "niets te doen".
+  let wissen = false;
+  if (bestaand.length > 0) {
+    const keuze = await p.select({
+      message: `${bestaand.join(" en ")} ${bestaand.length === 1 ? "bestaat" : "bestaan"} al. Wat doen we ermee?`,
+      initialValue: "houden" as "houden" | "wissen",
+      options: [
+        {
+          value: "houden" as const,
+          label: "Laten staan",
+          hint: "je data blijft; alleen nieuwe migraties draaien",
+        },
+        {
+          value: "wissen" as const,
+          label: "Opnieuw beginnen",
+          hint: "DROP DATABASE - alle tabellen en data weg",
+        },
+      ],
+    });
 
-  const superPassword = await p.password({
-    message: `Wachtwoord van ${String(superUser)}`,
-  });
-  if (p.isCancel(superPassword)) {
-    p.log.info(manualSteps(plan));
-    return false;
+    if (p.isCancel(keuze)) {
+      p.cancel("Geannuleerd.");
+      process.exit(0);
+    }
+
+    wissen = keuze === "wissen";
   }
 
   try {
-    await applyLocalDatabases(plan, String(superUser), String(superPassword));
+    await applyLocalDatabases(plan, wissen);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     p.log.warn(`Aanmaken is niet gelukt: ${message}\n\n${manualSteps(plan)}`);
@@ -86,54 +85,88 @@ export async function createLocalDatabases(plan: LocalDbPlan): Promise<boolean> 
   }
 
   p.log.success(
-    `Rol ${plan.user} en ${plan.databases.length === 1 ? "database" : "databases"} ` +
-      `${plan.databases.join(", ")} staan klaar.`,
+    `${plan.databases.length === 1 ? "Database" : "Databases"} ${plan.databases.join(", ")} ` +
+      `${plan.databases.length === 1 ? "staat" : "staan"} klaar.`,
   );
 
   return true;
 }
 
 /** Doet het werk, zonder vragen. Idempotent: een tweede run mag niet stukgaan. */
-export async function applyLocalDatabases(plan: LocalDbPlan, superUser: string, superPassword: string): Promise<void> {
-  const { Client } = await loadPg(plan.moduleDir);
-
-  const client = new Client({
-    host: plan.host,
-    port: plan.port,
-    user: superUser,
-    password: superPassword,
-    database: "postgres",
-  });
-
-  await client.connect();
+export async function applyLocalDatabases(plan: LocalDbPlan, wissen = false): Promise<void> {
+  const client = await connect(plan);
 
   try {
-    // Rol. Bestaat hij al, dan zetten we het wachtwoord gelijk aan wat er in
-    // .env staat - anders klopt het een van beide niet.
-    const role = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [plan.user]);
-
-    // Namen en wachtwoord kunnen niet als parameter: PostgreSQL staat geen
-    // placeholders toe in CREATE ROLE / CREATE DATABASE. Daarom quoten we zelf,
-    // met dezelfde regels als de server: "" voor een naam, '' voor een string.
-    const roleName = quoteIdentifier(plan.user);
-    const secret = quoteLiteral(plan.password);
-
-    if (role.rowCount === 0) {
-      await client.query(`CREATE ROLE ${roleName} LOGIN PASSWORD ${secret}`);
-    } else {
-      await client.query(`ALTER ROLE ${roleName} WITH LOGIN PASSWORD ${secret}`);
-    }
-
     for (const database of plan.databases) {
+      if (wissen) {
+        // WITH (FORCE) gooit openstaande verbindingen eruit. Zonder dat faalt
+        // dit als pgAdmin of een oude dev-server er nog aan hangt.
+        await client.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(database)} WITH (FORCE)`);
+      }
+
       const exists = await client.query("SELECT 1 FROM pg_database WHERE datname = $1", [database]);
       if (exists.rowCount === 0) {
         // CREATE DATABASE kan niet in een transactie; los uitvoeren dus.
-        await client.query(`CREATE DATABASE ${quoteIdentifier(database)} OWNER ${roleName}`);
+        await client.query(`CREATE DATABASE ${quoteIdentifier(database)}`);
       }
     }
   } finally {
     await client.end();
   }
+}
+
+/** Welke van deze databases staan er al? */
+async function existingDatabases(plan: LocalDbPlan): Promise<string[]> {
+  const client = await connect(plan);
+
+  try {
+    const found: string[] = [];
+    for (const database of plan.databases) {
+      const row = await client.query("SELECT 1 FROM pg_database WHERE datname = $1", [database]);
+      if (row.rowCount !== 0) found.push(database);
+    }
+    return found;
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Verbinden met de database "postgres".
+ *
+ * Die bestaat op elke server en dient hier alleen als aanmeldpunt: je kan geen
+ * database aanmaken zonder eerst ergens ingelogd te zijn.
+ */
+async function connect(plan: LocalDbPlan): Promise<PgClient> {
+  const { Client } = await loadPg(plan.moduleDir);
+
+  const client = new Client({
+    host: plan.host,
+    port: plan.port,
+    user: plan.user,
+    password: plan.password,
+    database: "postgres",
+  });
+
+  await client.connect();
+  return client;
+}
+
+/** Uitleg bij de meest voorkomende manieren waarop dit misgaat. */
+function connectionProblem(plan: LocalDbPlan, err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (/password authentication failed/i.test(message)) {
+    return `Inloggen als ${plan.user} lukt niet: wachtwoord klopt niet.`;
+  }
+  if (/ECONNREFUSED|connect/i.test(message)) {
+    return `Geen PostgreSQL op ${plan.host}:${plan.port}. Draait hij, en is dat de juiste poort?`;
+  }
+  if (/permission denied|must be|CREATEDB/i.test(message)) {
+    return `${plan.user} mag geen database aanmaken (recht CREATEDB ontbreekt).`;
+  }
+
+  return `Verbinden is niet gelukt: ${message}`;
 }
 
 /**
@@ -170,19 +203,12 @@ function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-/** 'waarde' - een enkele quote erin wordt verdubbeld. */
-function quoteLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-/** Wat je zelf moet doen als de CLI het niet mag of niet kan. */
+/** Wat je zelf moet doen als het niet lukt. */
 function manualSteps(plan: LocalDbPlan): string {
   return (
-    "Draai dit dan zelf even in psql (als postgres):\n" +
-    `  CREATE ROLE ${quoteIdentifier(plan.user)} LOGIN PASSWORD ${quoteLiteral(plan.password)};\n` +
-    plan.databases
-      .map((db) => `  CREATE DATABASE ${quoteIdentifier(db)} OWNER ${quoteIdentifier(plan.user)};`)
-      .join("\n") +
-    "\n\nHet wachtwoord staat ook in .env, bij DB_PASSWORD."
+    "Maak de database dan zelf even aan:\n" +
+    plan.databases.map((db) => `  createdb -U ${plan.user} ${db}`).join("\n") +
+    "\nof in psql:\n" +
+    plan.databases.map((db) => `  CREATE DATABASE ${quoteIdentifier(db)};`).join("\n")
   );
 }
