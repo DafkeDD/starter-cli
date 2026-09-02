@@ -239,11 +239,16 @@ async function main(): Promise<void> {
   // ---- Database -----------------------------------------------------------
   // Nu pas: je apps staan er, dus je ziet waar je "ja" tegen zegt. En als het
   // installeren misloopt, heb je die keuze niet voor niets gemaakt.
-  const backendDb: Database = backend === "none" ? "none" : await askDatabase("de backend");
-  const oidcDb: Database = oidc.mode === "new" ? await askDatabase("de OIDC-hub") : "none";
+  // Een hub-app is één app, dus ook één database: die van de app zelf, met de
+  // hub erin. Twee vragen stellen zou twee databases opleveren voor iets dat in
+  // hetzelfde proces draait - en een ./backend aanmaken die er niet hoort.
+  const appDb: Database = hubApp ? await askDatabase("je app") : "none";
+  const backendDb: Database =
+    hubApp || backend === "none" ? "none" : await askDatabase("de backend");
+  const oidcDb: Database = !hubApp && oidc.mode === "new" ? await askDatabase("de OIDC-hub") : "none";
 
   // Een database-container voor het hele project, dus ook maar een poort.
-  if (backendDb === "docker" || oidcDb === "docker") needed.push("db");
+  if (appDb === "docker" || backendDb === "docker" || oidcDb === "docker") needed.push("db");
   if (needed.includes("db")) {
     // Opnieuw met de volledige lijst: eerder gekozen poorten blijven staan,
     // alleen de nieuwe komen erbij.
@@ -255,11 +260,12 @@ async function main(): Promise<void> {
   // zelf dan zitten al je projecten op dezelfde server.
   //
   // De hub krijgt geen nummer: die database heet gewoon "oidc", want er draait
-  // er maar een - net zoals hij op poort 9000 blijft staan.
+  // er maar een - net zoals hij op poort 9000 blijft staan. Bij een hub-app is
+  // er helemaal geen aparte hub-database: alles zit in app01.
   const credentials = await askDbCredentials(
     resolveDbCredentials(projectDir, oidcDb !== "none"),
-    { app: backendDb !== "none", oidc: oidcDb !== "none" },
-    backendDb === "local" || oidcDb === "local",
+    { app: appDb !== "none" || backendDb !== "none", oidc: oidcDb !== "none" },
+    appDb === "local" || backendDb === "local" || oidcDb === "local",
   );
   // Koos je zelf een naam voor de hub, dan moet het register die kennen -
   // anders stelt een volgende hub dezelfde naam voor.
@@ -275,13 +281,14 @@ async function main(): Promise<void> {
     ports.db,
     ports.backend,
   );
-  // Dezelfde poort als de backend: dezelfde container, andere database erin.
+  // Bij een hub-app gaat de opslag van de hub in dezelfde database als de app;
+  // anders krijgt hij een eigen database naast die van de backend.
   await scaffoldOidcDatabase(
     oidc,
     projectDir,
     PACKAGE_MANAGER,
-    oidcDb,
-    targetFor(credentials, "oidc"),
+    hubApp ? appDb : oidcDb,
+    targetFor(credentials, hubApp ? "app" : "oidc"),
     ports.db,
     ports.oidc,
     hubDir,
@@ -299,7 +306,8 @@ async function main(): Promise<void> {
       frontend: frontend === "nextjs" && !hubApp,
       backend: backend !== "none" && !hubApp,
       oidc: oidc.mode === "new",
-      database: backendDb === "docker",
+      database: appDb === "docker" || backendDb === "docker",
+      // Bij een hub-app is er geen tweede database om aan te maken.
       oidcDatabase: oidcDb === "docker",
     },
     projectDir,
@@ -315,7 +323,7 @@ async function main(): Promise<void> {
   // enige dat ontbreekt is de database, en zonder die faalt de eerste migratie
   // met "database app01 does not exist".
   const lokaal = [
-    ...(backendDb === "local" ? [credentials.appDb] : []),
+    ...(appDb === "local" || backendDb === "local" ? [credentials.appDb] : []),
     ...(oidcDb === "local" ? [credentials.oidcDb] : []),
   ];
 
@@ -323,7 +331,10 @@ async function main(): Promise<void> {
     await createLocalDatabases({
       // pg staat in de app die we net geinstalleerd hebben; de CLI zelf sleept
       // geen databasedriver mee.
-      moduleDir: path.join(projectDir, backendDb === "local" ? BACKEND_DIR : hubDir),
+      moduleDir: path.join(
+        projectDir,
+        appDb === "local" ? APP_DIR : backendDb === "local" ? BACKEND_DIR : hubDir,
+      ),
       host: "127.0.0.1",
       port: 5432,
       user: credentials.user,
@@ -334,10 +345,12 @@ async function main(): Promise<void> {
 
   // ---- Meteen starten? ----------------------------------------------------
   const gestart = await offerToStart(
-    [
-      { dir: BACKEND_DIR, database: backendDb },
-      { dir: hubDir, database: oidcDb },
-    ],
+    hubApp
+      ? [{ dir: APP_DIR, database: appDb }]
+      : [
+          { dir: BACKEND_DIR, database: backendDb },
+          { dir: hubDir, database: oidcDb },
+        ],
     projectDir,
     PACKAGE_MANAGER,
   );
@@ -358,7 +371,14 @@ async function main(): Promise<void> {
     ]);
   }
   // Is de database al gestart, dan hoeft die stap er niet meer bij.
-  if (backendDb === "local" && !gestart) {
+  if (hubApp && appDb === "local" && !gestart) {
+    steps.push([
+      `cd ${APP_DIR} && ${PACKAGE_MANAGER} run db:migrate`,
+      `database ${credentials.appDb}`,
+    ]);
+  } else if (hubApp && appDb === "docker" && !gestart) {
+    steps.push([`cd ${APP_DIR} && ${PACKAGE_MANAGER} run db:up`, "database starten en migreren"]);
+  } else if (backendDb === "local" && !gestart) {
     steps.push([
       `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run db:migrate`,
       `database ${credentials.appDb}`,
@@ -384,7 +404,9 @@ async function main(): Promise<void> {
     ]);
   }
 
-  if (oidcDb === "local" && !gestart) {
+  if (hubApp) {
+    // Al meegenomen hierboven: één app, één database.
+  } else if (oidcDb === "local" && !gestart) {
     steps.push([
       `cd ${hubDir} && ${PACKAGE_MANAGER} run db:migrate`,
       `database ${credentials.oidcDb}`,
