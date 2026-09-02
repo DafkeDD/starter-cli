@@ -24,6 +24,7 @@ import {
   scaffoldOidcFrontend,
   askHub,
   HUB_MOUNT,
+  APP_DIR,
   OIDC_DIR,
   OIDC_PORT,
 } from "./steps/oidc.js";
@@ -59,8 +60,18 @@ async function main(): Promise<void> {
   const backend = await askBackend();
   const oidc = await askOidc(defaultName);
   // Alleen relevant als dit project de hub bouwt; wie aansluit erft de schermen.
-  const hub = oidc.mode === "new" ? await askHub() : { mode: "standalone" as const, server: "express" as const };
+  const hub = oidc.mode === "new" ? await askHub(frontend === "nextjs") : { mode: "standalone" as const, server: "express" as const };
   const github = await askGithub(defaultName);
+
+  /**
+   * Bouwt dit project de hub én draait die in dezelfde app?
+   *
+   * Dan is er geen aparte ./frontend en ./backend: alles zit in ./app, in één
+   * proces op één poort. De hub hangt daar op /oidc, de rest van de paden is
+   * van je eigen schermen.
+   */
+  const hubApp = oidc.mode === "new" && hub.mode === "inapp";
+  const appDir = hubApp ? APP_DIR : FRONTEND_DIR;
   // De databasevragen komen bewust later, als alles geinstalleerd is.
 
   // ---- Poorten ------------------------------------------------------------
@@ -73,9 +84,12 @@ async function main(): Promise<void> {
   // draait er maar een, gedeeld door al je apps, en blijft dus op 9000.
   // De poorten van de databases komen er later bij, als die vraag gesteld is.
   const needed: PortName[] = [];
-  if (frontend === "nextjs") needed.push("frontend");
-  if (backend !== "none") needed.push("backend");
+  // Een hub-app draait op één poort: die van de hub. De frontend zit erin.
+  if (frontend === "nextjs" && !hubApp) needed.push("frontend");
+  if (backend !== "none" && !hubApp) needed.push("backend");
   if (oidc.mode === "new") needed.push("oidc");
+  // De interne poort van de hub telt mee, anders botsen twee hub-apps erop.
+  if (hubApp) needed.push("hubApi");
 
   let ports = await resolvePorts(projectDir, needed);
 
@@ -87,14 +101,18 @@ async function main(): Promise<void> {
   }
 
   // ---- Controles ----------------------------------------------------------
-  if (frontend === "nextjs") {
-    assertEmpty(path.join(projectDir, FRONTEND_DIR), FRONTEND_DIR);
-  }
-  if (backend !== "none") {
-    assertEmpty(path.join(projectDir, BACKEND_DIR), BACKEND_DIR);
-  }
-  if (oidc.mode === "new") {
-    assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
+  if (hubApp) {
+    assertEmpty(path.join(projectDir, APP_DIR), APP_DIR);
+  } else {
+    if (frontend === "nextjs") {
+      assertEmpty(path.join(projectDir, FRONTEND_DIR), FRONTEND_DIR);
+    }
+    if (backend !== "none") {
+      assertEmpty(path.join(projectDir, BACKEND_DIR), BACKEND_DIR);
+    }
+    if (oidc.mode === "new") {
+      assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
+    }
   }
 
   // ---- Overzicht ----------------------------------------------------------
@@ -109,7 +127,7 @@ async function main(): Promise<void> {
     [
       `${pc.dim("Locatie ")}  ${pc.cyan(projectDir)}`,
       `${pc.dim("Frontend")}  ${pc.cyan(frontend)}${
-        frontend === "nextjs" ? pc.dim(`  -> ./${FRONTEND_DIR}`) : ""
+        frontend === "nextjs" ? pc.dim(`  -> ./${appDir}`) : ""
       }`,
       `${pc.dim("Backend ")}  ${pc.cyan(backendLabel)}`,
       `${pc.dim("i18n    ")}  ${pc.cyan(`next-intl (${LOCALES.join(", ")})`)}${pc.dim(
@@ -156,19 +174,44 @@ async function main(): Promise<void> {
   );
 
   // ---- Genereren ----------------------------------------------------------
-  await scaffoldFrontend(frontend, projectDir, PACKAGE_MANAGER, ports.frontend);
-  await scaffoldCustomUi(customUi, frontend, projectDir, PACKAGE_MANAGER);
-  await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER, ports.backend);
-  await scaffoldOidcServer(oidc, projectDir, defaultName, PACKAGE_MANAGER, hub, {
-    oidc: ports.oidc,
-    backend: ports.backend,
-    frontend: ports.frontend,
-  });
-  await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER, {
-    backend: ports.backend,
-    frontend: ports.frontend,
-  });
-  scaffoldOidcFrontend(oidc, frontend, projectDir, ports.backend);
+  // Bij een hub-app landt de frontend meteen in ./app en draait hij op de
+  // poort van de hub - het is immers hetzelfde proces.
+  await scaffoldFrontend(
+    frontend,
+    projectDir,
+    PACKAGE_MANAGER,
+    hubApp ? ports.oidc : ports.frontend,
+    appDir,
+  );
+  await scaffoldCustomUi(customUi, frontend, projectDir, PACKAGE_MANAGER, undefined, appDir);
+  if (!hubApp) {
+    await scaffoldBackend(backend, projectDir, PACKAGE_MANAGER, ports.backend);
+  }
+  await scaffoldOidcServer(
+    oidc,
+    projectDir,
+    defaultName,
+    PACKAGE_MANAGER,
+    hub,
+    hubApp ? APP_DIR : OIDC_DIR,
+    {
+      oidc: ports.oidc,
+      backend: ports.backend,
+      frontend: ports.frontend,
+      hubApi: ports.hubApi,
+    },
+  );
+
+  // De hub-app is straks zijn eigen client; die koppeling zit nog niet in de
+  // CLI. Voor nu krijgt alleen een losstaande app de clientcode en de
+  // loginpagina - dat is de volgende stap.
+  if (!hubApp) {
+    await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER, {
+      backend: ports.backend,
+      frontend: ports.frontend,
+    });
+    scaffoldOidcFrontend(oidc, frontend, projectDir, ports.backend, appDir);
+  }
 
   // ---- Database -----------------------------------------------------------
   // Nu pas: je apps staan er, dus je ziet waar je "ja" tegen zegt. En als het
@@ -222,8 +265,8 @@ async function main(): Promise<void> {
 
   scaffoldDocker(
     {
-      frontend: frontend === "nextjs",
-      backend: backend !== "none",
+      frontend: frontend === "nextjs" && !hubApp,
+      backend: backend !== "none" && !hubApp,
       oidc: oidc.mode === "new",
       database: backendDb === "docker",
       oidcDatabase: oidcDb === "docker",
@@ -273,7 +316,12 @@ async function main(): Promise<void> {
   // ---- Volgende stappen ---------------------------------------------------
   // Commando + bijbehorende URL; de URL's worden onder elkaar uitgelijnd.
   const steps: Array<[command: string, url: string]> = [];
-  if (frontend === "nextjs") {
+  if (hubApp) {
+    steps.push([
+      `cd ${APP_DIR} && ${PACKAGE_MANAGER} run dev`,
+      `http://localhost:${ports.oidc}  (hub op /oidc)`,
+    ]);
+  } else if (frontend === "nextjs") {
     steps.push([
       `cd ${FRONTEND_DIR} && ${PACKAGE_MANAGER} run dev`,
       `http://localhost:${ports.frontend}`,
@@ -313,7 +361,7 @@ async function main(): Promise<void> {
     steps.push([`cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:up`, "database van de hub"]);
   }
 
-  if (oidc.mode === "new") {
+  if (oidc.mode === "new" && !hubApp) {
     steps.push([
       `cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run dev`,
       `http://localhost:${ports.oidc}/.well-known/openid-configuration`,

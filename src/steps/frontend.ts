@@ -53,15 +53,17 @@ export async function scaffoldFrontend(
   projectDir: string,
   pm: PackageManager,
   port: number = FRONTEND_PORT,
+  /** Waar de app komt. Bij een hub-app is dat niet ./frontend maar ./app. */
+  dir: string = FRONTEND_DIR,
 ): Promise<void> {
   if (frontend === "none") {
     p.log.info("Geen frontend gekozen — overgeslagen.");
     return;
   }
 
-  const target = path.join(projectDir, FRONTEND_DIR);
+  const target = path.join(projectDir, dir);
   p.log.step(
-    `Next.js + next-intl (${LOCALES.join(", ")}, standaard ${DEFAULT_LOCALE}) + light/dark + Prettier opzetten in ./${FRONTEND_DIR} ...`,
+    `Next.js + next-intl (${LOCALES.join(", ")}, standaard ${DEFAULT_LOCALE}) + light/dark + Prettier opzetten in ./${dir} ...`,
   );
 
   const pmFlag = pm === "pnpm" ? "--use-pnpm" : pm === "yarn" ? "--use-yarn" : "--use-npm";
@@ -109,7 +111,7 @@ export async function scaffoldFrontend(
   );
 
   p.log.success(
-    `Next.js + next-intl + light/dark + Prettier aangemaakt in ./${FRONTEND_DIR} (talen: ${LOCALES.join(", ")}, standaard: ${DEFAULT_LOCALE}).`,
+    `Next.js + next-intl + light/dark + Prettier aangemaakt in ./${dir} (talen: ${LOCALES.join(", ")}, standaard: ${DEFAULT_LOCALE}).`,
   );
 }
 

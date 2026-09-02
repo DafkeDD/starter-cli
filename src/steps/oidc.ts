@@ -17,9 +17,20 @@ import type { PackageManager } from "../types.js";
 /** Map voor een nieuwe OIDC-server. */
 export const OIDC_DIR = "oidc";
 
+/**
+ * De map van een hub-app: frontend en hub in één.
+ *
+ * Heet bewust niet "oidc", want dat is hij maar voor een klein deel - het is je
+ * app, met de identiteitsserver erin.
+ */
+export const APP_DIR = "app";
+
 /** Poort van de OIDC-server, naast frontend (3000) en backend (5000). */
 /** Standaardpoort van de hub. De CLI kan een andere kiezen; zie utils/ports.ts. */
 export const OIDC_PORT = 9000;
+
+/** Interne poort van de hub bij een hub-app; alleen Next praat ermee. */
+export const HUB_API_PORT = 9600;
 
 export type OidcMode = "new" | "existing" | "none";
 
@@ -59,7 +70,11 @@ export interface HubChoice {
 /** Waar de hub hangt als hij in je eigen app zit. */
 export const HUB_MOUNT = "/oidc";
 
-export async function askHub(): Promise<HubChoice> {
+export async function askHub(hasFrontend: boolean): Promise<HubChoice> {
+  // Zonder Next-frontend valt er niets samen te voegen: de schermen van een
+  // hub-app zijn pagina's van die frontend.
+  if (!hasFrontend) return { mode: "standalone", server: "express" };
+
   const mode = await p.select({
     message: "Hoe draait de OIDC-hub?",
     initialValue: "standalone" as HubMode,
@@ -72,7 +87,7 @@ export async function askHub(): Promise<HubChoice> {
       {
         value: "inapp" as const,
         label: "Als één app met Next.js",
-        hint: `eigen schermen, hub op ${HUB_MOUNT}`,
+        hint: `je frontend voorop, hub op ${HUB_MOUNT}`,
       },
     ],
   });
@@ -214,16 +229,19 @@ export async function scaffoldOidcServer(
   projectName: string,
   pm: PackageManager,
   hub: HubChoice,
-  ports: { oidc: number; backend: number; frontend: number } = {
+  /** Waar de hub komt. Bij een hub-app is dat ./app, naast de frontend. */
+  dir: string,
+  ports: { oidc: number; backend: number; frontend: number; hubApi: number } = {
     oidc: OIDC_PORT,
     backend: BACKEND_PORT,
     frontend: FRONTEND_PORT,
+    hubApi: HUB_API_PORT,
   },
 ): Promise<void> {
   if (choice.mode !== "new") return;
 
-  const target = path.join(projectDir, OIDC_DIR);
-  p.log.step(`OIDC-server opzetten in ./${OIDC_DIR} (poort ${ports.oidc}) ...`);
+  const target = path.join(projectDir, dir);
+  p.log.step(`OIDC-server opzetten in ./${dir} (poort ${ports.oidc}) ...`);
 
   await withProgress(
     "OIDC-server installeren",
@@ -232,7 +250,17 @@ export async function scaffoldOidcServer(
       // Zit hij in je app, dan moet er ruimte over blijven voor jouw schermen.
       const mount = hub.mode === "inapp" ? HUB_MOUNT : "";
 
-      copyTemplate("oidc-server", target, {
+      // Staat er al een app in deze map (de hub-app), dan mogen de
+      // projectbestanden van de hub-template die niet overschrijven: daar
+      // zitten next.config.ts met next-intl en de package.json van de frontend.
+      preserving(
+        target,
+        // tsconfig hoort er ook bij: die van de frontend heeft de paths voor
+        // "@/..." en de jsx-instelling. De Node-tsconfig van de hub-template zou
+        // die overschrijven en dan vindt Next geen enkel component meer.
+        ["package.json", ".gitignore", "next.config.ts", "postcss.config.mjs", "tsconfig.json"],
+        () =>
+        copyTemplate("oidc-server", target, {
         MOUNT: mount,
         OIDC_PORT: ports.oidc,
         BACKEND_PORT: ports.backend,
@@ -242,7 +270,8 @@ export async function scaffoldOidcServer(
         CLIENT_SECRET: choice.clientSecret,
         ACCENT: "#0f9d58",
         TAGLINE: "Centrale login",
-      });
+        }),
+      );
 
       await addDeps(pm, target, [
         "oidc-provider@latest",
@@ -266,7 +295,10 @@ export async function scaffoldOidcServer(
 
       if (hub.mode === "inapp") {
         update("Schermen en server samenvoegen");
-        await scaffoldInAppHub(hub, target, projectName, pm, mount);
+        await scaffoldInAppHub(hub, target, projectName, pm, mount, {
+          publiek: ports.oidc,
+          intern: ports.hubApi,
+        });
       }
 
       // Het startbestand verschilt per opzet; de env-lader hoort in beide als
@@ -279,7 +311,7 @@ export async function scaffoldOidcServer(
         path.join(target, ".env"),
         [
           "# Poort van de hub. In Docker zet compose deze variabele.",
-          `PORT=${ports.oidc}`,
+          `PORT=${hub.mode === "inapp" ? ports.hubApi : ports.oidc}`,
           "",
           "# Moet exact de URL zijn die ook de browser gebruikt - anders klopt de",
           "# iss in het id_token niet en faalt de validatie bij de clients.",
@@ -314,16 +346,15 @@ async function scaffoldInAppHub(
   projectName: string,
   pm: PackageManager,
   mount: string,
+  ports: { publiek: number; intern: number },
 ): Promise<void> {
   copyTemplate("oidc-inapp", target, { MOUNT: mount, BRAND_NAME: projectName });
 
-  await addDeps(pm, target, ["next@latest", "react@latest", "react-dom@latest"]);
-  await addDevDeps(pm, target, [
-    "@types/react@latest",
-    "@types/react-dom@latest",
-    "tailwindcss@latest",
-    "@tailwindcss/postcss@latest",
-  ]);
+  patchNextConfig(target, mount, ports.intern);
+
+  // next en react staan er al: dit zijn pagina's van je eigen frontend.
+  // concurrently start Next en de hub samen met één commando.
+  await addDevDeps(pm, target, ["concurrently@latest"]);
 
   if (hub.server === "nestjs") {
     copyTemplate("oidc-inapp-nest", target, { MOUNT: mount });
@@ -343,7 +374,70 @@ async function scaffoldInAppHub(
     await addDevDeps(pm, target, ["@nestjs/cli@latest", "typescript@^6"]);
   }
 
-  setHubScripts(target, hub);
+  setHubScripts(target, hub, ports.publiek);
+}
+
+/**
+ * Voert `fn` uit en zet daarna terug wat er al stond.
+ *
+ * copyTemplate overschrijft; bij een hub-app zit er al een Next-project in de
+ * map en dat mag niet sneuvelen.
+ */
+function preserving(target: string, names: string[], fn: () => void): void {
+  const kept = new Map<string, string>();
+  for (const name of names) {
+    const file = path.join(target, name);
+    if (fs.existsSync(file)) kept.set(file, fs.readFileSync(file, "utf8"));
+  }
+
+  fn();
+
+  for (const [file, content] of kept) fs.writeFileSync(file, content, "utf8");
+}
+
+/**
+ * Zet de doorstuurregel in next.config.ts.
+ *
+ * `afterFiles` is hier het hele punt: Next kijkt eerst of hij zelf een pagina
+ * heeft voor dit pad, en stuurt pas daarna door naar de hub. Zo zijn de
+ * inlogschermen gewone pagina's van je app, terwijl /auth, /token en de rest
+ * bij de hub terechtkomen - allemaal op dezelfde origin, dus de cookies kloppen.
+ */
+function patchNextConfig(target: string, mount: string, intern: number): void {
+  const file = path.join(target, "next.config.ts");
+  if (!fs.existsSync(file)) return;
+
+  let src = fs.readFileSync(file, "utf8");
+  if (src.includes("HUB_URL")) return;
+
+  const blok = `
+    /**
+     * De OIDC-hub draait als eigen proces op ${intern} en is alleen via deze
+     * regel bereikbaar - nooit rechtstreeks. Zo ziet je browser één origin.
+     *
+     * fallback en niet afterFiles: afterFiles draait wél na de gewone
+     * bestanden, maar nog VOOR de dynamische routes - en de inlogschermen zijn
+     * er een ([uid]). Die zou je dan nooit zien; alles ging naar de hub. In
+     * fallback komt de hub pas aan bod als Next echt geen pagina heeft.
+     */
+    async rewrites() {
+        return {
+            beforeFiles: [],
+            afterFiles: [],
+            fallback: [{ source: '${mount}/:path*', destination: \`\${HUB_URL}${mount}/:path*\` }]
+        }
+    },
+`;
+
+  src = src.replace(
+    "const nextConfig: NextConfig = {",
+    `/** Waar de hub luistert. In Docker zet compose deze variabele. */
+const HUB_URL = process.env.HUB_URL ?? 'http://127.0.0.1:${intern}'
+
+const nextConfig: NextConfig = {${blok}`,
+  );
+
+  fs.writeFileSync(file, src, "utf8");
 }
 
 /**
@@ -354,17 +448,30 @@ async function scaffoldInAppHub(
  * niet. Vandaar de gewone Nest-compiler, met een eigen tsconfig.build.json die
  * de Next-bestanden overslaat.
  */
-function setHubScripts(target: string, hub: HubChoice): void {
+function setHubScripts(target: string, hub: HubChoice, publiek: number): void {
   const file = path.join(target, "package.json");
   if (!fs.existsSync(file)) return;
 
-  const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as { scripts?: Record<string, string> };
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as {
+    type?: string;
+    scripts?: Record<string, string>;
+  };
+
+  // create-next-app schrijft geen "type": "module", en dan draait tsx het
+  // startbestand als CommonJS - waarop het valt over de top-level await in
+  // src/index.ts. De hub is ESM, dus dit hoort erin.
+  pkg.type = "module";
+
+  const hubDev = hub.server === "nestjs" ? "nest start --watch" : "tsx watch src/index.ts";
 
   pkg.scripts = {
     ...pkg.scripts,
-    ...(hub.server === "nestjs"
-      ? { dev: "nest start --watch", build: "nest build", start: "node dist/main.js" }
-      : { dev: "tsx watch src/index.ts", start: "tsx src/index.ts" }),
+    // Eén commando, twee processen: Next vooraan op de publieke poort, de hub
+    // erachter. --kill-others zorgt dat je er nooit eentje laat rondslingeren.
+    dev: `concurrently --kill-others --names next,hub -c cyan,magenta "next dev -p ${publiek}" "${hubDev}"`,
+    "dev:next": `next dev -p ${publiek}`,
+    "dev:hub": hubDev,
+    ...(hub.server === "nestjs" ? { "build:hub": "nest build" } : {}),
     typecheck: "tsc --noEmit",
   };
 
@@ -763,6 +870,8 @@ export function scaffoldOidcFrontend(
   frontend: Frontend,
   projectDir: string,
   backendPort: number = BACKEND_PORT,
+  /** Waar de frontend staat. Bij een hub-app is dat ./app. */
+  dir: string = FRONTEND_DIR,
 ): void {
   if (choice.mode === "none") return;
   if (frontend === "none") {
@@ -770,7 +879,7 @@ export function scaffoldOidcFrontend(
     return;
   }
 
-  const target = path.join(projectDir, FRONTEND_DIR);
+  const target = path.join(projectDir, dir);
   const vars = { BACKEND_URL: `http://localhost:${backendPort}` };
 
   copyTemplate("oidc-frontend", target, vars);
@@ -782,7 +891,7 @@ export function scaffoldOidcFrontend(
   patchHomePage(target);
 
   p.log.success(
-    `Loginpagina${choice.isAdminPanel ? " en beheerscherm" : ""} toegevoegd aan ./${FRONTEND_DIR}.`,
+    `Loginpagina${choice.isAdminPanel ? " en beheerscherm" : ""} toegevoegd aan ./${dir}.`,
   );
 }
 

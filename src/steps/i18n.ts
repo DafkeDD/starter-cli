@@ -93,8 +93,10 @@ export function setupNextIntl(target: string): void {
   const localeDir = path.join(appDir, "[locale]");
   const localeList = LOCALES.map((l) => `'${l}'`).join(", ");
 
-  // De [locale]-layout wordt de root-layout: oude root-bestanden weg.
-  removeIfExists(path.join(appDir, "layout.tsx"));
+  // De root-layout blijft bestaan en wordt hieronder herschreven. Hij mag NIET
+  // de [locale]-layout worden: dan kan er niets meer naast [locale] leven, en
+  // juist daar horen de schermen van de OIDC-hub - die kennen geen taalprefix.
+  // De startpagina van create-next-app gaat wel weg; die verhuist naar [locale].
   removeIfExists(path.join(appDir, "page.tsx"));
   removeIfExists(path.join(appDir, "page.module.css"));
 
@@ -152,8 +154,12 @@ import { routing } from './i18n/routing'
 export default createMiddleware(routing)
 
 export const config = {
-    // Alles behalve api, trpc, _next, _vercel en bestanden met een extensie.
-    matcher: '/((?!api|trpc|_next|_vercel|.*\\\\..*).*)'
+    // Alles behalve api, trpc, oidc, _next, _vercel en bestanden met een
+    // extensie. "oidc" staat erbij voor de schermen van de OIDC-hub: die horen
+    // buiten de talenroutering, want de hub kent geen taalprefix. Zonder deze
+    // uitzondering herschrijft de proxy /oidc/interaction/... naar
+    // /en/oidc/interaction/... en krijg je een 404.
+    matcher: '/((?!api|trpc|oidc|_next|_vercel|.*\\\\..*).*)'
 }
 `,
   );
@@ -202,18 +208,18 @@ export default withNextIntl(nextConfig)
 `,
   );
 
-  // ---- src/app/[locale]/layout.tsx ---------------------------------------
+  // ---- src/app/layout.tsx -------------------------------------------------
+  // De echte root-layout: html, body, fonts en het thema. Bewust hier en niet
+  // in [locale], want alles buiten die map heeft hem ook nodig.
   write(
-    path.join(localeDir, "layout.tsx"),
+    path.join(appDir, "layout.tsx"),
     `import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { cookies } from 'next/headers'
-import { hasLocale, NextIntlClientProvider } from 'next-intl'
-import { setRequestLocale } from 'next-intl/server'
-import { notFound } from 'next/navigation'
-import { routing } from '@/i18n/routing'
+import { getLocale } from 'next-intl/server'
 import { ThemeProvider, type Theme } from '@/components/theme/ThemeProvider'
-import '../globals.css'
+import { routing } from '@/i18n/routing'
+import './globals.css'
 
 /** Class op <html> op basis van de cookie — server-side, dus geen flits. */
 function themeClass(theme: Theme): string | undefined {
@@ -245,11 +251,53 @@ export const metadata: Metadata = {
     description: 'Next.js starter met next-intl (${LOCALES.join("/")})'
 }
 
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+    // De taal komt van de proxy, die hem per verzoek meestuurt. Routes buiten
+    // [locale] - zoals de schermen van de OIDC-hub - hebben er geen, en dan
+    // valt hij terug op de standaardtaal.
+    let locale: string = routing.defaultLocale
+    try {
+        locale = await getLocale()
+    } catch {
+        // Geen taalcontext: standaardtaal is prima.
+    }
+
+    // Themavoorkeur uit de cookie (nooit localStorage).
+    const cookieStore = await cookies()
+    const cookieTheme = cookieStore.get('theme')?.value
+    const initialTheme: Theme =
+        cookieTheme === 'light' || cookieTheme === 'dark' || cookieTheme === 'system' ? cookieTheme : 'system'
+
+    return (
+        <html
+            lang={locale}
+            className={themeClass(initialTheme)}
+            data-theme={themeAttribute(initialTheme)}
+            suppressHydrationWarning
+        >
+            <body className={\`\${geistSans.variable} \${geistMono.variable} antialiased\`}>
+                <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>
+            </body>
+        </html>
+    )
+}
+`,
+  );
+
+  // ---- src/app/[locale]/layout.tsx ---------------------------------------
+  // Geen <html> meer: die staat een niveau hoger. Deze laag doet alleen de taal.
+  write(
+    path.join(localeDir, "layout.tsx"),
+    `import { hasLocale, NextIntlClientProvider } from 'next-intl'
+import { setRequestLocale } from 'next-intl/server'
+import { notFound } from 'next/navigation'
+import { routing } from '@/i18n/routing'
+
 export function generateStaticParams() {
     return routing.locales.map(locale => ({ locale }))
 }
 
-export default async function RootLayout({
+export default async function LocaleLayout({
     children,
     params
 }: {
@@ -266,26 +314,7 @@ export default async function RootLayout({
     // Locale beschikbaar maken voor server-side vertalingen.
     setRequestLocale(locale)
 
-    // Themavoorkeur uit de cookie (nooit localStorage).
-    const cookieStore = await cookies()
-    const cookieTheme = cookieStore.get('theme')?.value
-    const initialTheme: Theme =
-        cookieTheme === 'light' || cookieTheme === 'dark' || cookieTheme === 'system' ? cookieTheme : 'system'
-
-    return (
-        <html
-            lang={locale}
-            className={themeClass(initialTheme)}
-            data-theme={themeAttribute(initialTheme)}
-            suppressHydrationWarning
-        >
-            <body className={\`\${geistSans.variable} \${geistMono.variable} antialiased\`}>
-                <NextIntlClientProvider>
-                    <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>
-                </NextIntlClientProvider>
-            </body>
-        </html>
-    )
+    return <NextIntlClientProvider>{children}</NextIntlClientProvider>
 }
 `,
   );

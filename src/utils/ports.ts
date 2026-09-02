@@ -26,6 +26,13 @@ export interface Ports {
   backend: number;
   oidc: number;
   /**
+   * De interne poort van de hub bij een hub-app.
+   *
+   * Daar praat alleen Next mee, die {MOUNT}/... ernaartoe doorstuurt. Je
+   * browser komt hier nooit: die ziet alleen de publieke poort hierboven.
+   */
+  hubApi: number;
+  /**
    * Host-poort van de database.
    *
    * Er is er EEN per project. De backend en de OIDC-hub delen dezelfde
@@ -55,6 +62,7 @@ export const DEFAULT_PORTS: Ports = {
   frontend: 3000,
   backend: 5000,
   oidc: 9000,
+  hubApi: 9600,
   db: 55432,
 };
 

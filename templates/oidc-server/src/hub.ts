@@ -84,12 +84,29 @@ const configuration: Configuration = {
         }
     },
     cookies: {
-        keys: ['proefopstelling-geheim-niet-voor-productie']
+        keys: ['proefopstelling-geheim-niet-voor-productie'],
+        // Op de wortel en niet op het pad van de interaction.
+        //
+        // Standaard hangt oidc-provider deze cookie aan {{MOUNT}}/interaction/
+        // <uid>. Het inlogscherm is bij een hub-app een pagina van Next en het
+        // formulier post naar een ander pad - dan zou de cookie niet meegaan en
+        // krijg je "interaction session not found" bij het eerste wachtwoord.
+        short: { path: '/' }
     },
     pkce: { required: () => true }
 }
 
 export const provider = new Provider(ISSUER, configuration)
+
+/**
+ * De hub staat achter Next.
+ *
+ * Zonder dit bouwt oidc-provider zijn URL's uit de Host-header die hij ziet -
+ * en dat is het interne adres. Dan staat er 127.0.0.1 in je discovery-document
+ * en in elke redirect. Met proxy = true kijkt hij naar x-forwarded-host en
+ * x-forwarded-proto, die Next meestuurt.
+ */
+provider.proxy = true
 
 /**
  * Alle routes van de hub in een router, niet rechtstreeks op een app.

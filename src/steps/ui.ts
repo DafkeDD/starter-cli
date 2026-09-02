@@ -75,11 +75,13 @@ export async function scaffoldCustomUi(
   projectDir: string,
   pm: PackageManager,
   pkg: string = UI_PACKAGE,
+  /** Waar de frontend staat. Bij een hub-app is dat ./app. */
+  dir: string = FRONTEND_DIR,
 ): Promise<void> {
   if (!wanted || frontend === "none") return;
 
-  const target = path.join(projectDir, FRONTEND_DIR);
-  p.log.step(`Custom UI installeren in ./${FRONTEND_DIR} ...`);
+  const target = path.join(projectDir, dir);
+  p.log.step(`Custom UI installeren in ./${dir} ...`);
 
   try {
     let count = 0;
@@ -124,18 +126,18 @@ export async function scaffoldCustomUi(
     );
 
     p.log.success(
-      `Custom UI geïnstalleerd: ${count || "alle"} componenten in ./${FRONTEND_DIR}/${COMPONENTS_DIR}.`,
+      `Custom UI geïnstalleerd: ${count || "alle"} componenten in ./${dir}/${COMPONENTS_DIR}.`,
     );
     p.log.info(
       `Design tokens komen nu uit de custom UI — globals.css is overgenomen.\n` +
         `Importeren doe je zo:  import { Button } from '${IMPORT_ALIAS}/button'\n` +
-        `Later bijwerken:       cd ${FRONTEND_DIR} && npx projectx-ui add --all --force`,
+        `Later bijwerken:       cd ${dir} && npx projectx-ui add --all --force`,
     );
   } catch (err) {
     p.log.warn(
       `Custom UI installeren is niet gelukt: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}\n` +
         "De frontend houdt zijn eigen tokens en componenten — verder werkt alles.\n" +
-        `Later alsnog:\n  cd ${FRONTEND_DIR} && ${pm} install --save-dev ${pkg}\n` +
+        `Later alsnog:\n  cd ${dir} && ${pm} install --save-dev ${pkg}\n` +
         `  npx projectx-ui init --yes && npx projectx-ui add --all`,
     );
   }

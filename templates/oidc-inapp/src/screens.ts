@@ -1,16 +1,27 @@
-import next from 'next'
 import type { NextFunction, Request, Response, Express } from 'express'
 import type { Branding } from './clients.js'
 import { MOUNT } from './hub.js'
 
 /**
- * De schermen komen uit de Next.js-app in deze map.
+ * De schermen van de hub zijn pagina's van de Next-app ervoor.
  *
- * Geen proxy, geen tweede proces: Next draait in dezelfde server. "Toon het
- * inlogscherm" is hier gewoon een functieaanroep. Dat de browser nooit een
- * andere origin ziet is niet alleen netjes maar noodzakelijk - oidc-provider
- * zet zijn interaction-cookie op het pad {{MOUNT}}/interaction/<uid>, en die
- * cookie moet bij het versturen van het formulier gewoon meegaan.
+ * De hub rendert hier dus niets: hij stuurt je naar het juiste pad en Next doet
+ * de rest. Dat kan omdat beide achter dezelfde origin zitten — Next staat
+ * vooraan en proxyt {{MOUNT}}/... naar dit proces (zie next.config.ts).
+ *
+ * De paden zijn bewust zo gekozen dat geen enkel pad tegelijk een pagina én een
+ * formulierdoel is:
+ *
+ *   GET  {{MOUNT}}/interaction/<uid>            de hub: inloggen of consent?
+ *   GET  {{MOUNT}}/aanmelden/<uid>              pagina in Next  (inloggen)
+ *   GET  {{MOUNT}}/aanmelden/<uid>/nieuw        pagina in Next  (registreren)
+ *   POST {{MOUNT}}/interaction/<uid>/login      de hub
+ *   POST {{MOUNT}}/interaction/<uid>/register   de hub
+ *
+ * /interaction blijft bewust van de hub. Daar wordt beslist of je een scherm
+ * moet zien of dat de consent stil afgerond kan worden - en dat kan Next niet
+ * weten. Zou een pagina op dat pad staan, dan zou Next hem opvangen en zou een
+ * ingelogde gebruiker eindeloos een inlogscherm blijven zien.
  */
 export interface ScreenContext {
     uid: string
@@ -20,56 +31,26 @@ export interface ScreenContext {
     email?: string
 }
 
-const dev = process.env.NODE_ENV !== 'production'
+/** Niets te doen: Next draait als eigen proces ervoor. */
+export async function attach(_app: Express): Promise<void> {}
 
-let handle: ((req: Request, res: Response) => Promise<void>) | undefined
-
-/**
- * Next opstarten. Duurt even in ontwikkeling, want hij compileert dan.
- *
- * Gebeurt VOOR de routes van de hub, maar hangt zelf nog niets op: de
- * afhandeling hoort helemaal achteraan, anders vangt Next de OIDC-endpoints af.
- */
-export async function attach(_app: Express): Promise<void> {
-    const app = next({ dev, dir: process.cwd() })
-    await app.prepare()
-    handle = app.getRequestHandler() as (req: Request, res: Response) => Promise<void>
-}
-
-/**
- * Alles wat de hub niet zelf afhandelt is een pagina van je app.
- *
- * Alleen voor de kale Express-opzet. NestJS zet bij het opstarten zijn eigen
- * 404 achter je routes, en die antwoordt dan vóór dit vangnet - dus daar loopt
- * het via een exception filter (zie src/next.filter.ts).
- */
-export function fallback(app: Express): void {
-    // Express 5 wil een naam achter de ster; een kale '*' is er geen geldig
-    // patroon meer sinds path-to-regexp 8.
-    app.all('/*splat', (req, res) => {
-        handleRequest(req, res)
-    })
-}
-
-/** Laat Next dit verzoek afhandelen. Het vangnet van beide opzetten. */
-export function handleRequest(req: Request, res: Response): void {
-    void handle?.(req, res)
-}
+/** Idem. Alles wat de hub niet kent hoort hier een 404 te zijn. */
+export function fallback(_app: Express): void {}
 
 export function showLogin(req: Request, res: Response, next: NextFunction, ctx: ScreenContext): void {
-    show(req, res, next, `${MOUNT}/interaction/${encodeURIComponent(ctx.uid)}`, ctx)
+    show(req, res, next, `${MOUNT}/aanmelden/${encodeURIComponent(ctx.uid)}`, ctx)
 }
 
 export function showRegister(req: Request, res: Response, next: NextFunction, ctx: ScreenContext): void {
-    show(req, res, next, `${MOUNT}/interaction/${encodeURIComponent(ctx.uid)}/register`, ctx)
+    show(req, res, next, `${MOUNT}/aanmelden/${encodeURIComponent(ctx.uid)}/nieuw`, ctx)
 }
 
 /**
- * Een GET laat Next renderen; op een POST kan dat niet.
+ * Altijd een redirect, ook op een GET.
  *
- * Na een mislukte post is de body al gelezen en zou Next een formulier-post
- * moeten renderen die hij niet kent. Daarom sturen we de browser terug met een
- * 303: die doet dan een verse GET, met de foutmelding in de query.
+ * De hub kan de pagina niet zelf renderen — die staat in een ander proces. Met
+ * 303 doet de browser sowieso een GET, ook na een mislukt formulier, en reist
+ * de foutmelding mee in de query.
  */
 function show(req: Request, res: Response, _next: NextFunction, path: string, ctx: ScreenContext): void {
     const step = ctx.step && ctx.step !== 'idle' ? ctx.step : one(req.query.step)
@@ -81,15 +62,7 @@ function show(req: Request, res: Response, _next: NextFunction, path: string, ct
     if (error) query.set('error', error)
     if (email) query.set('email', email)
 
-    const target = query.size > 0 ? `${path}?${query.toString()}` : path
-
-    if (req.method !== 'GET') {
-        res.redirect(303, target)
-        return
-    }
-
-    req.url = target
-    void handle?.(req, res)
+    res.redirect(303, query.size > 0 ? `${path}?${query.toString()}` : path)
 }
 
 /** Express geeft bij een dubbele parameter een array terug; wij willen er één. */
