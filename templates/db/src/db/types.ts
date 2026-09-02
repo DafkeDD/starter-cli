@@ -101,7 +101,10 @@ export interface ColumnSpec {
     nullable: boolean;
     unique: boolean;
     primary: boolean;
-    /** Letterlijke standaardwaarde, of het sleutelwoord "now". */
-    default?: string | number | boolean | null | "now";
+    /**
+     * Letterlijke standaardwaarde, of een sleutelwoord: "now" wordt now(),
+     * "uuid" wordt gen_random_uuid().
+     */
+    default?: string | number | boolean | null | "now" | "uuid";
     references?: { table: string; column: string; onDelete?: "cascade" | "set null" };
 }

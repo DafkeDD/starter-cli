@@ -4,8 +4,10 @@ import type { Schema } from "../schema.js";
  * De eerste migratie. Pas hem aan naar wat jouw app nodig heeft, of laat hem
  * staan als voorbeeld en zet je eigen tabellen in 002_....ts.
  *
- * t.id() wordt een bigserial met primaire sleutel, t.timestamps() zet
- * created_at en updated_at neer als timestamptz met now() als standaard.
+ * t.id() wordt een uuid met primaire sleutel en gen_random_uuid() als
+ * standaard, t.timestamps() zet created_at en updated_at neer als timestamptz
+ * met now() als standaard. Een verwijzing naar zo'n sleutel is dus ook een
+ * uuid-kolom, niet een bigint.
  */
 export async function up(s: Schema): Promise<void> {
     await s.createTable("users", (t) => {
@@ -19,7 +21,7 @@ export async function up(s: Schema): Promise<void> {
 
     await s.createTable("notes", (t) => {
         t.id();
-        t.bigint("user_id").references("users", "id", "cascade");
+        t.uuid("user_id").references("users", "id", "cascade");
         t.string("title", 200);
         t.text("body").null();
         t.json("tags").null();

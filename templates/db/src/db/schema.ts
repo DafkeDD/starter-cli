@@ -89,8 +89,19 @@ export class TableBuilder {
     }
 
     /** Automatisch oplopende primaire sleutel. */
+    /**
+     * De primaire sleutel: een UUID, geen oplopend nummer.
+     *
+     * Bewust geen bigserial. Een id als 1, 2, 3 lekt hoeveel gebruikers je hebt
+     * en hoe snel je groeit, en het is te raden - iemand die /users/1 probeert
+     * heeft meteen beet. Een UUID zegt niets en botst niet als je ooit rijen
+     * uit twee databases samenvoegt.
+     *
+     * PostgreSQL maakt hem zelf aan met gen_random_uuid(); dat zit sinds versie
+     * 13 in de kern, dus geen extensie nodig.
+     */
     id(name = "id"): Column {
-        return this.add(name, "id").primary();
+        return this.add(name, "id").primary().default("uuid");
     }
 
     uuid(name: string): Column {
@@ -243,8 +254,7 @@ export class Schema {
 function columnType(spec: ColumnSpec): string {
     switch (spec.type) {
         case "id":
-            // bigserial impliceert al not null.
-            return "bigserial";
+            return "uuid";
         case "uuid":
             return "uuid";
         case "string":
@@ -272,10 +282,7 @@ function columnType(spec: ColumnSpec): string {
 function columnSql(spec: ColumnSpec): string {
     const parts = [quote(spec.name), columnType(spec)];
 
-    // bigserial is al not null; nog eens toevoegen mag maar voegt niets toe.
-    if (spec.type !== "id") {
-        parts.push(spec.nullable ? "null" : "not null");
-    }
+    parts.push(spec.nullable ? "null" : "not null");
 
     if (spec.default !== undefined) {
         parts.push(`default ${defaultSql(spec.default)}`);
@@ -286,6 +293,7 @@ function columnSql(spec: ColumnSpec): string {
 
 function defaultSql(value: ColumnSpec["default"]): string {
     if (value === "now") return "now()";
+    if (value === "uuid") return "gen_random_uuid()";
     if (value === null || value === undefined) return "null";
     if (typeof value === "boolean") return value ? "true" : "false";
     if (typeof value === "number") return String(value);

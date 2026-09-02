@@ -25,7 +25,7 @@ export interface User {
 }
 
 interface UserRow {
-    id: number | string
+    id: string
     email: string
     name: string
     role: string
@@ -48,7 +48,7 @@ function database(): Db {
 /** Zet een rij om naar een User, zonder de wachtwoordhash. */
 function toUser(row: UserRow): User {
     return {
-        // PostgreSQL geeft bigint terug als string; consequent tekst maken.
+        // Een uuid komt als string terug; String() houdt het type eenduidig.
         id: String(row.id),
         email: row.email,
         name: row.name,
