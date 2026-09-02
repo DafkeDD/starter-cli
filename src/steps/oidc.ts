@@ -44,6 +44,10 @@ export interface OidcChoice {
   clientId: string;
   /** client_secret; bij "new" zelf gegenereerd. */
   clientSecret: string;
+  /** Alleen bij "existing": waarmee de CLI zich bij de hub aanmeldt. */
+  registrationToken?: string;
+  /** Mag je vanuit deze app een account aanmaken? Zet de hub per client. */
+  allowRegistration?: boolean;
 }
 
 /**
@@ -204,11 +208,33 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
   }
 
   const secret = await p.text({
-    message: "client_secret van deze app? (leeg = later invullen in .env)",
-    placeholder: "wordt in backend/.env gezet",
+    message: "client_secret van deze app? (leeg = zelf een verzinnen)",
+    placeholder: "wordt in .env gezet",
     defaultValue: "",
   });
   if (p.isCancel(secret)) {
+    p.cancel("Geannuleerd.");
+    process.exit(0);
+  }
+
+  // Zonder token kan de CLI deze app niet bij de hub aanmelden; dan krijg je
+  // bij de eerste login "invalid_client". Leeg laten mag - dan krijg je aan het
+  // eind het commando om het zelf te doen.
+  const token = await p.text({
+    message: "Registratietoken van de hub? (HUB_REGISTRATION_TOKEN uit zijn .env)",
+    placeholder: "leeg = deze app zelf aanmelden",
+    defaultValue: "",
+  });
+  if (p.isCancel(token)) {
+    p.cancel("Geannuleerd.");
+    process.exit(0);
+  }
+
+  const mayRegister = await p.confirm({
+    message: "Mag je vanuit deze app een account aanmaken?",
+    initialValue: false,
+  });
+  if (p.isCancel(mayRegister)) {
     p.cancel("Geannuleerd.");
     process.exit(0);
   }
@@ -218,7 +244,9 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
     issuer: String(issuer).trim().replace(/\/$/, ""),
     isAdminPanel: role === "admin",
     clientId,
-    clientSecret: String(secret).trim(),
+    clientSecret: String(secret).trim() || crypto.randomBytes(24).toString("hex"),
+    registrationToken: String(token).trim(),
+    allowRegistration: mayRegister === true,
   };
 }
 
@@ -316,6 +344,10 @@ export async function scaffoldOidcServer(
           "# Moet exact de URL zijn die ook de browser gebruikt - anders klopt de",
           "# iss in het id_token niet en faalt de validatie bij de clients.",
           `OIDC_ISSUER=http://localhost:${ports.oidc}${mount}`,
+          "",
+          "# Waarmee starter-cli een nieuwe app bij deze hub aanmeldt. Geef dit",
+          "# door als je een volgend project aansluit. Leeg = aanmelden staat uit.",
+          `HUB_REGISTRATION_TOKEN=${crypto.randomBytes(24).toString("hex")}`,
           "",
         ].join("\n"),
       );
@@ -548,6 +580,83 @@ export async function scaffoldOidcClient(
   );
 
   p.log.success(`OIDC-client aangemaakt in ./${BACKEND_DIR}.`);
+}
+
+/**
+ * Meldt deze app aan bij de bestaande hub.
+ *
+ * Zonder deze stap kent de hub je client_id niet en krijg je bij de eerste
+ * login `invalid_client` - de meest voorkomende manier waarop een tweede app
+ * stukloopt. Lukt het niet, dan krijg je het curl-commando om het zelf te doen;
+ * we laten het scaffolden er niet op stoppen.
+ */
+export async function registerWithHub(
+  choice: OidcChoice,
+  backendPort: number,
+  frontendPort: number,
+): Promise<void> {
+  if (choice.mode !== "existing") return;
+
+  const body = {
+    client_id: choice.clientId,
+    client_secret: choice.clientSecret,
+    name: choice.clientId,
+    redirect_uris: [`http://localhost:${backendPort}/auth/callback`],
+    post_logout_redirect_uris: [`http://localhost:${frontendPort}/`],
+    allow_registration: choice.allowRegistration ?? false,
+  };
+
+  const url = `${choice.issuer}/admin/api/clients`;
+
+  if (!choice.registrationToken) {
+    p.log.warn(
+      `Deze app is NIET aangemeld bij de hub - je gaf geen registratietoken.\n` +
+        `Zonder dat kent de hub ${choice.clientId} niet en krijg je invalid_client.\n\n` +
+        manualRegisterCommand(url, "<HUB_REGISTRATION_TOKEN>", body),
+    );
+    return;
+  }
+
+  p.log.step(`Deze app aanmelden bij ${choice.issuer} ...`);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${choice.registrationToken}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`HTTP ${response.status} ${details.slice(0, 200)}`);
+    }
+
+    p.log.success(
+      `Aangemeld als ${choice.clientId}` +
+        (choice.allowRegistration ? " (mag accounts aanmaken)." : " (geen registratie)."),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.warn(
+      `Aanmelden bij de hub is niet gelukt: ${message}\n` +
+        `Draait hij, en klopt de URL? Anders zelf:\n\n` +
+        manualRegisterCommand(url, choice.registrationToken, body),
+    );
+  }
+}
+
+/** Het commando om het met de hand te doen. */
+function manualRegisterCommand(url: string, token: string, body: object): string {
+  return (
+    `curl -X POST ${url} \\\n` +
+    `  -H "authorization: Bearer ${token}" \\\n` +
+    `  -H "content-type: application/json" \\\n` +
+    `  -d '${JSON.stringify(body)}'`
+  );
 }
 
 /** Schrijft .env en .env.example met de OIDC-gegevens. */

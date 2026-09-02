@@ -143,6 +143,11 @@ export async function upsertClient(client: UpsertClient): Promise<void> {
     await database().insert('clients', { client_id: client.clientId, ...velden })
 }
 
+/** Een app aanmelden bij de hub. Bestaat hij al, dan wordt hij bijgewerkt. */
+export async function registerClient(client: UpsertClient): Promise<void> {
+    await upsertClient(client)
+}
+
 export async function brandingFor(clientId: string): Promise<Branding | undefined> {
     const row = await database().one<Row>(
         sql`select * from ${id('clients')} where ${id('client_id')} = ${clientId}`

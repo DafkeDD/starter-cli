@@ -23,6 +23,7 @@ import {
   scaffoldOidcClient,
   scaffoldOidcFrontend,
   askHub,
+  registerWithHub,
   HUB_MOUNT,
   APP_DIR,
   OIDC_DIR,
@@ -212,6 +213,9 @@ async function main(): Promise<void> {
     });
     scaffoldOidcFrontend(oidc, frontend, projectDir, ports.backend, appDir);
   }
+
+  // Sluit dit project aan op een bestaande hub, dan moet die hem ook kennen.
+  await registerWithHub(oidc, ports.backend, ports.frontend);
 
   // ---- Database -----------------------------------------------------------
   // Nu pas: je apps staan er, dus je ziet waar je "ja" tegen zegt. En als het

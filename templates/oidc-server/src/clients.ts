@@ -69,6 +69,19 @@ export async function allowsRegistration(clientId: string): Promise<boolean> {
     return clientId === OWN_CLIENT
 }
 
+/**
+ * Een app aanmelden bij de hub.
+ *
+ * Kan hier niet: in de bestandsvariant staan de clients in de code. De
+ * foutmelding zegt precies wat je dan zelf moet doen.
+ */
+export async function registerClient(client: { clientId: string }): Promise<void> {
+    throw new Error(
+        `Deze hub bewaart zijn clients in src/clients.ts, niet in een database.\n` +
+            `Voeg "${client.clientId}" daar met de hand toe en herstart de hub.`
+    )
+}
+
 export async function allClients(): Promise<ClientRow[]> {
     return CLIENTS.map(c => ({
         client_id: String(c.client_id),

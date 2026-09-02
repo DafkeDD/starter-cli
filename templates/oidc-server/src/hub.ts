@@ -1,7 +1,8 @@
 import express, { type Router } from 'express'
+import { timingSafeEqual } from 'node:crypto'
 import Provider from 'oidc-provider'
 import type { Configuration } from 'oidc-provider'
-import { CLIENTS, allClients, allowsRegistration, brandingFor } from './clients.js'
+import { CLIENTS, allClients, allowsRegistration, brandingFor, registerClient } from './clients.js'
 import { all as allUsers, findById, register, setBlocked, verify } from './users.js'
 import * as screens from './screens.js'
 import { StorageAdapter, initStorage } from './adapter.js'
@@ -287,6 +288,66 @@ router.get('/admin/api/users', async (req, res, next) => {
         })
     } catch (err) {
         next(err)
+    }
+})
+
+/**
+ * Een app aanmelden bij de hub.
+ *
+ * Hier komt `starter-cli` langs als je een nieuw project op deze hub aansluit.
+ * Beveiligd met een eigen token uit .env en niet met een admin-sessie: de CLI
+ * heeft geen ingelogde gebruiker, en zonder token zou iedereen die de hub kan
+ * bereiken zich kunnen aanmelden.
+ *
+ * Laat je HUB_REGISTRATION_TOKEN leeg, dan staat dit eindpunt uit.
+ */
+router.post('/admin/api/clients', express.json(), async (req, res, next) => {
+    try {
+        const expected = process.env.HUB_REGISTRATION_TOKEN ?? ''
+        if (!expected) {
+            res.status(503).json({ error: 'Aanmelden staat uit: HUB_REGISTRATION_TOKEN is leeg.' })
+            return
+        }
+
+        const header = req.headers.authorization ?? ''
+        const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+        // Vergelijken op lengte én inhoud; timingSafeEqual gooit bij ongelijke
+        // lengtes, dus die controleren we eerst.
+        const ok =
+            token.length === expected.length &&
+            timingSafeEqual(Buffer.from(token), Buffer.from(expected))
+        if (!ok) {
+            res.status(401).json({ error: 'Ongeldig registratietoken' })
+            return
+        }
+
+        const body = req.body as {
+            client_id?: string
+            client_secret?: string
+            name?: string
+            redirect_uris?: string[]
+            post_logout_redirect_uris?: string[]
+            allow_registration?: boolean
+        }
+
+        if (!body.client_id || !Array.isArray(body.redirect_uris) || body.redirect_uris.length === 0) {
+            res.status(400).json({ error: 'client_id en minstens een redirect_uri zijn verplicht.' })
+            return
+        }
+
+        await registerClient({
+            clientId: body.client_id,
+            name: body.name ?? body.client_id,
+            clientSecret: body.client_secret,
+            redirectUris: body.redirect_uris,
+            postLogoutRedirectUris: body.post_logout_redirect_uris ?? [],
+            allowRegistration: body.allow_registration ?? false
+        })
+
+        res.status(201).json({ ok: true, client_id: body.client_id })
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        res.status(501).json({ error: message })
     }
 })
 
