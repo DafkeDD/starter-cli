@@ -24,6 +24,7 @@ import {
   scaffoldOidcFrontend,
   askHub,
   registerWithHub,
+  scaffoldHubAppClient,
   HUB_MOUNT,
   APP_DIR,
   OIDC_DIR,
@@ -219,10 +220,12 @@ async function main(): Promise<void> {
     },
   );
 
-  // De hub-app is straks zijn eigen client; die koppeling zit nog niet in de
-  // CLI. Voor nu krijgt alleen een losstaande app de clientcode en de
-  // loginpagina - dat is de volgende stap.
-  if (!hubApp) {
+  if (hubApp) {
+    // De hub-app is ook een gewone client van zichzelf: dezelfde flow, maar
+    // alles binnen één proces en één origin.
+    await scaffoldHubAppClient(oidc, hub, projectDir, APP_DIR, PACKAGE_MANAGER, ports.oidc);
+    scaffoldOidcFrontend(oidc, frontend, projectDir, ports.oidc, APP_DIR);
+  } else {
     await scaffoldOidcClient(oidc, backend, projectDir, PACKAGE_MANAGER, {
       backend: ports.backend,
       frontend: ports.frontend,

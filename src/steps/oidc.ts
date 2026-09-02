@@ -456,7 +456,12 @@ function patchNextConfig(target: string, mount: string, intern: number): void {
         return {
             beforeFiles: [],
             afterFiles: [],
-            fallback: [{ source: '${mount}/:path*', destination: \`\${HUB_URL}${mount}/:path*\` }]
+            fallback: [
+                { source: '${mount}/:path*', destination: \`\${HUB_URL}${mount}/:path*\` },
+                // Inloggen op deze app zelf: /auth/start, /auth/callback,
+                // /auth/me en /auth/logout draaien op dezelfde server als de hub.
+                { source: '/auth/:path*', destination: \`\${HUB_URL}/auth/:path*\` }
+            ]
         }
     },
 `;
@@ -580,6 +585,140 @@ export async function scaffoldOidcClient(
   );
 
   p.log.success(`OIDC-client aangemaakt in ./${BACKEND_DIR}.`);
+}
+
+/**
+ * De hub-app zijn eigen loginknop geven.
+ *
+ * Een hub-app deelt tokens uit, maar is ook gewoon een client van zichzelf: je
+ * moet er kunnen inloggen. Dat gaat via dezelfde authorization code flow als
+ * elke andere app — alleen blijft het verkeer binnen hetzelfde proces, dus is
+ * er geen CORS nodig en wijst de callback naar de app zelf.
+ *
+ * De routes komen op /auth/*, naast de hub op /oidc/* en je eigen schermen op
+ * de rest. Geen van drieën botst met de andere.
+ */
+export async function scaffoldHubAppClient(
+  choice: OidcChoice,
+  hub: HubChoice,
+  projectDir: string,
+  dir: string,
+  pm: PackageManager,
+  port: number,
+): Promise<void> {
+  if (choice.mode !== "new" || hub.mode !== "inapp") return;
+
+  const target = path.join(projectDir, dir);
+  p.log.step(`Inloggen op de app zelf opzetten in ./${dir} ...`);
+
+  await withProgress(
+    "OIDC-client installeren",
+    async (update) => {
+      // src/env.ts is van de hub en laadt dezelfde .env; die van de
+      // clienttemplate zou hem overschrijven met een versie zonder zijn uitleg.
+      preserving(target, [path.join("src", "env.ts")], () =>
+        copyTemplate("oidc-client-express", target, {
+          ISSUER: choice.issuer,
+          CLIENT_ID: choice.clientId,
+          CLIENT_SECRET: choice.clientSecret,
+          BACKEND_PORT: port,
+          FRONTEND_PORT: port,
+        }),
+      );
+
+      if (choice.isAdminPanel) {
+        copyTemplate("oidc-client-express-admin", target, {
+          ISSUER: choice.issuer,
+          CLIENT_ID: choice.clientId,
+          CLIENT_SECRET: choice.clientSecret,
+          BACKEND_PORT: port,
+          FRONTEND_PORT: port,
+        });
+      }
+
+      patchHubAppEntry(target, hub);
+
+      mergeEnv(
+        path.join(target, ".env"),
+        [
+          "# Inloggen op deze app zelf. Dezelfde hub, maar dan als client.",
+          `OIDC_CLIENT_ID=${choice.clientId}`,
+          `OIDC_CLIENT_SECRET=${choice.clientSecret}`,
+          `OIDC_REDIRECT_URI=http://localhost:${port}/auth/callback`,
+          `FRONTEND_URL=http://localhost:${port}`,
+          "",
+          "# Ondertekent de sessiecookie van deze app. Verzin een eigen waarde.",
+          `SESSION_SECRET=${crypto.randomBytes(24).toString("hex")}`,
+          "",
+        ].join("\n"),
+      );
+
+      update("Pakketten installeren");
+      await addDeps(pm, target, ["openid-client@latest", "cookie-session@latest"]);
+      await addDevDeps(pm, target, ["@types/cookie-session@latest"]);
+    },
+    45000,
+  );
+
+  p.log.success(`Inloggen op ./${dir} staat klaar: /auth/start.`);
+}
+
+/**
+ * Hangt de sessie en de auth-routes in het startbestand van de hub-app.
+ *
+ * Bewust vóór de hub-router: /auth/* is van de client, /oidc/* van de hub. Ze
+ * delen wel de origin — en dat is precies waarom er geen CORS nodig is.
+ */
+function patchHubAppEntry(target: string, hub: HubChoice): void {
+  const file = path.join(target, "src", hub.server === "nestjs" ? "main.ts" : "index.ts");
+  if (!fs.existsSync(file)) return;
+
+  let src = fs.readFileSync(file, "utf8");
+  if (src.includes("authRouter")) return;
+
+  const sessie = [
+    "// Sessie van deze app zelf. Same-origin, dus geen CORS nodig.",
+    "const session = cookieSession({",
+    "    name: 'sid',",
+    "    keys: [process.env.SESSION_SECRET ?? 'verander-mij'],",
+    "    httpOnly: true,",
+    "    sameSite: 'lax',",
+    "    maxAge: 7 * 24 * 60 * 60 * 1000",
+    "})",
+    "",
+  ].join("\n");
+
+  if (hub.server === "nestjs") {
+    src = src.replace(
+      "import { NestFactory } from '@nestjs/core'",
+      [
+        "import { NestFactory } from '@nestjs/core'",
+        "import cookieSession from 'cookie-session'",
+        "import { authRouter } from './auth/routes.js'",
+      ].join("\n"),
+    );
+    src = src.replace(
+      "// Express slikt geen leeg mountpad, vandaar de val terug op de wortel.",
+      sessie + "server.use(session)\nserver.use(authRouter)\n\n" +
+        "// Express slikt geen leeg mountpad, vandaar de val terug op de wortel.",
+    );
+  } else {
+    src = src.replace(
+      "import express from 'express'",
+      [
+        "import express from 'express'",
+        "import cookieSession from 'cookie-session'",
+        "import { authRouter } from './auth/routes.js'",
+      ].join("\n"),
+    );
+    src = src.replace(
+      "// Express slikt geen leeg mountpad, vandaar de val terug op de wortel.",
+      sessie + "app.use(session)\napp.use(authRouter)\n\n" +
+        "// Express slikt geen leeg mountpad, vandaar de val terug op de wortel.",
+    );
+  }
+
+  fs.writeFileSync(file, src, "utf8");
 }
 
 /**

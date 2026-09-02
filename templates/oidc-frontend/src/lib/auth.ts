@@ -15,9 +15,23 @@ export interface User {
     role?: string
 }
 
-export async function getUser(): Promise<User | null> {
+/**
+ * De cookies van de bezoeker als Cookie-header.
+ *
+ * Bewust getAll() en niet cookieStore.toString(): die laatste geeft in Next 16
+ * een lege string terug, waardoor getUser() altijd null teruggaf en je scherm
+ * "je bent niet ingelogd" bleef tonen terwijl je sessie prima bestond.
+ */
+async function cookieHeader(): Promise<string> {
     const cookieStore = await cookies()
-    const cookie = cookieStore.toString()
+    return cookieStore
+        .getAll()
+        .map(c => `${c.name}=${c.value}`)
+        .join('; ')
+}
+
+export async function getUser(): Promise<User | null> {
+    const cookie = await cookieHeader()
     if (!cookie) return null
 
     try {
@@ -47,10 +61,9 @@ export function logoutUrl(): string {
 
 /** Praat namens de bezoeker met de backend (bv. de beheer-endpoints). */
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
-    const cookieStore = await cookies()
     return fetch(`${BACKEND_URL}${path}`, {
         ...init,
-        headers: { ...(init?.headers ?? {}), cookie: cookieStore.toString() },
+        headers: { ...(init?.headers ?? {}), cookie: await cookieHeader() },
         cache: 'no-store'
     })
 }

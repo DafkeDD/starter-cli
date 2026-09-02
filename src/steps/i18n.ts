@@ -154,12 +154,14 @@ import { routing } from './i18n/routing'
 export default createMiddleware(routing)
 
 export const config = {
-    // Alles behalve api, trpc, oidc, _next, _vercel en bestanden met een
-    // extensie. "oidc" staat erbij voor de schermen van de OIDC-hub: die horen
-    // buiten de talenroutering, want de hub kent geen taalprefix. Zonder deze
-    // uitzondering herschrijft de proxy /oidc/interaction/... naar
-    // /en/oidc/interaction/... en krijg je een 404.
-    matcher: '/((?!api|trpc|oidc|_next|_vercel|.*\\\\..*).*)'
+    // Alles behalve api, trpc, oidc, auth, _next, _vercel en bestanden met een
+    // extensie.
+    //
+    // "oidc" en "auth" horen buiten de talenroutering: dat zijn de schermen en
+    // de endpoints van de OIDC-hub, en die kennen geen taalprefix. Zonder deze
+    // uitzondering herschrijft de proxy /auth/start naar /en/auth/start en
+    // krijg je een 404 op je eigen inlogknop.
+    matcher: '/((?!api|trpc|oidc|auth|_next|_vercel|.*\\\\..*).*)'
 }
 `,
   );
