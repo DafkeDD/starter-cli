@@ -75,7 +75,14 @@ export async function allowsRegistration(clientId: string): Promise<boolean> {
  * Kan hier niet: in de bestandsvariant staan de clients in de code. De
  * foutmelding zegt precies wat je dan zelf moet doen.
  */
-export async function registerClient(client: { clientId: string }): Promise<void> {
+export async function registerClient(client: {
+    clientId: string
+    name?: string
+    clientSecret?: string
+    redirectUris?: string[]
+    postLogoutRedirectUris?: string[]
+    allowRegistration?: boolean
+}): Promise<void> {
     throw new Error(
         `Deze hub bewaart zijn clients in src/clients.ts, niet in een database.\n` +
             `Voeg "${client.clientId}" daar met de hand toe en herstart de hub.`

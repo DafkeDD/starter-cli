@@ -1,4 +1,4 @@
-import './hub.css'
+import '../design.css'
 import './auth.css'
 
 /**

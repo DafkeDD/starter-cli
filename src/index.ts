@@ -31,6 +31,7 @@ import {
   OIDC_PORT,
 } from "./steps/oidc.js";
 import { scaffoldDocker } from "./steps/docker.js";
+import { askAppShell, scaffoldAppShell, installDesign } from "./steps/shell.js";
 import { askGithub, pushToGithub } from "./steps/github.js";
 import { LOCALES, DEFAULT_LOCALE } from "./steps/i18n.js";
 import { resolvePorts, isShifted, type PortName } from "./utils/ports.js";
@@ -63,6 +64,7 @@ async function main(): Promise<void> {
   const oidc = await askOidc(defaultName);
   // Alleen relevant als dit project de hub bouwt; wie aansluit erft de schermen.
   const hub = oidc.mode === "new" ? await askHub(frontend === "nextjs") : { mode: "standalone" as const, server: "express" as const };
+  const appShell = await askAppShell(frontend);
   const github = await askGithub(defaultName);
 
   /**
@@ -171,6 +173,9 @@ async function main(): Promise<void> {
             )}`,
           ]
         : []),
+      `${pc.dim("Layout  ")}  ${pc.cyan(
+        appShell ? "sidebar + topbar uit het design" : "kaal",
+      )}`,
       `${pc.dim("Prettier")}  ${pc.cyan("frontend + backend")}${pc.dim("  zelfde projectsettings")}`,
       `${pc.dim("GitHub  ")}  ${pc.cyan(
         github.useGithub
@@ -235,6 +240,10 @@ async function main(): Promise<void> {
 
   // Sluit dit project aan op een bestaande hub, dan moet die hem ook kennen.
   await registerWithHub(oidc, ports.backend, ports.frontend);
+
+  // De schil komt na de OIDC-stap: die bepaalt of er een gebruiker op te halen
+  // valt, en dat verandert wat AppShell moet doen.
+  await scaffoldAppShell(appShell, projectDir, appDir, defaultName, oidc.mode !== "none");
 
   // ---- Database -----------------------------------------------------------
   // Nu pas: je apps staan er, dus je ziet waar je "ja" tegen zegt. En als het

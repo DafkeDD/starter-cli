@@ -1,6 +1,6 @@
 'use client'
-import { Icon } from '@/components/hub/ui/icons'
-import { Btn, Field, Input } from '@/components/hub/ui/primitives'
+import { Icon } from '@/components/design/icons'
+import { Btn, Field, Input } from '@/components/design/primitives'
 
 /**
  * Account aanmaken op de hub.

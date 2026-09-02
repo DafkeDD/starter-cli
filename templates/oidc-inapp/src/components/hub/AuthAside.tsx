@@ -1,4 +1,4 @@
-import { Icon } from '@/components/hub/ui/icons'
+import { Icon } from '@/components/design/icons'
 
 /**
  * De linkerhelft van het inlogscherm. Puur decoratief — geen formulier, geen

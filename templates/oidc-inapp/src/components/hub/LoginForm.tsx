@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { Icon } from '@/components/hub/ui/icons'
-import { Btn, Field, Input, Badge } from '@/components/hub/ui/primitives'
+import { Icon } from '@/components/design/icons'
+import { Btn, Field, Input, Badge } from '@/components/design/primitives'
 import { OtpInput } from '@/components/hub/OtpInput'
 
 /**

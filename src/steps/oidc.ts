@@ -5,6 +5,7 @@ import * as p from "@clack/prompts";
 import { addDeps, addDevDeps } from "../utils/install.js";
 import { withProgress } from "../utils/progress.js";
 import { setupPrettier } from "../utils/prettier.js";
+import { installDesign } from "./shell.js";
 import { copyTemplate } from "../utils/template.js";
 import { mergeEnv } from "../utils/env.js";
 import { scaffoldDatabase, databaseLabel, type Database, type DbTarget } from "./database.js";
@@ -383,6 +384,7 @@ async function scaffoldInAppHub(
   copyTemplate("oidc-inapp", target, { MOUNT: mount, BRAND_NAME: projectName });
 
   patchNextConfig(target, mount, ports.intern);
+  raiseTsTarget(target);
 
   // next en react staan er al: dit zijn pagina's van je eigen frontend.
   // concurrently start Next en de hub samen met één commando.
@@ -425,6 +427,23 @@ function preserving(target: string, names: string[], fn: () => void): void {
   fn();
 
   for (const [file, content] of kept) fs.writeFileSync(file, content, "utf8");
+}
+
+/**
+ * Tilt het TypeScript-doel naar ES2022.
+ *
+ * create-next-app schrijft ES2017, en daar kent TypeScript de d-vlag op reguliere
+ * expressies nog niet - die gebruikt de adapter van de hub. `npm run typecheck`
+ * struikelt daar anders over, terwijl de code op runtime prima werkt.
+ */
+function raiseTsTarget(target: string): void {
+  const file = path.join(target, "tsconfig.json");
+  if (!fs.existsSync(file)) return;
+
+  const raw = fs.readFileSync(file, "utf8");
+  if (/"target"\s*:\s*"ES20(1[89]|2\d)"/i.test(raw)) return;
+
+  fs.writeFileSync(file, raw.replace(/"target"\s*:\s*"[^"]+"/i, '"target": "ES2022"'), "utf8");
 }
 
 /**
