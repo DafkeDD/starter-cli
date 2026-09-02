@@ -25,6 +25,7 @@ import {
   askHub,
   registerWithHub,
   scaffoldHubAppClient,
+  rewireBackendAuth,
   HUB_MOUNT,
   APP_DIR,
   OIDC_DIR,
@@ -290,6 +291,11 @@ async function main(): Promise<void> {
     ports.db,
     ports.backend,
   );
+
+  // De databasestap heeft src/index.ts (of app.module.ts) opnieuw neergezet en
+  // daarmee de auth-bedrading eruit gegooid. Zonder dit staan alle auth-
+  // bestanden er wel, maar antwoordt de backend 404 op /auth/start.
+  rewireBackendAuth(oidc, backend, projectDir);
   // Bij een hub-app gaat de opslag van de hub in dezelfde database als de app;
   // anders krijgt hij een eigen database naast die van de backend.
   await scaffoldOidcDatabase(

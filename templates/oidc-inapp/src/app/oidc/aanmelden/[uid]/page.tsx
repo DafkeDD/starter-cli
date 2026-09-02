@@ -15,7 +15,7 @@ export default async function InteractionPage({
     searchParams
 }: {
     params: Promise<{ uid: string }>
-    searchParams: Promise<{ step?: string; error?: string; email?: string }>
+    searchParams: Promise<{ step?: string; error?: string; email?: string; reg?: string }>
 }) {
     const { uid } = await params
     const query = await searchParams
@@ -30,6 +30,7 @@ export default async function InteractionPage({
                     step={query.step === 'mfa' ? 'mfa' : 'idle'}
                     error={query.error}
                     email={query.email}
+                    mayRegister={query.reg === '1'}
                 />
             </div>
         </div>

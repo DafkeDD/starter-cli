@@ -18,6 +18,13 @@ export interface ScreenContext {
     step?: 'idle' | 'mfa'
     error?: string
     email?: string
+    /**
+     * Mag je vanuit de app waar je vandaan komt een account aanmaken?
+     *
+     * Staat per client (allow_registration). De route is sowieso dicht als het
+     * niet mag; dit zorgt dat er dan ook geen knop staat die daarna 403 geeft.
+     */
+    mayRegister?: boolean
 }
 
 /** Eenmalig bij het opstarten, VOOR de routes van de hub. */
@@ -33,7 +40,7 @@ export async function attach(_app: Express): Promise<void> {}
 export function fallback(_app: Express): void {}
 
 export function showLogin(_req: Request, res: Response, _next: NextFunction, ctx: ScreenContext): void {
-    res.send(loginPage(ctx.brand, ctx.uid, ctx.error))
+    res.send(loginPage(ctx.brand, ctx.uid, ctx.error, ctx.mayRegister === true))
 }
 
 export function showRegister(_req: Request, res: Response, _next: NextFunction, ctx: ScreenContext): void {

@@ -131,6 +131,53 @@ export async function askHub(hasFrontend: boolean): Promise<HubChoice> {
  * Bij "aansluiten" volgt de vraag of dit project het beheerpaneel is — dan
  * krijgt het een /admin-scherm met gebruikersbeheer erbij.
  */
+/**
+ * Vraagt de discovery van een hub op.
+ *
+ * Een OIDC-server publiceert zichzelf op /.well-known/openid-configuration.
+ * Komt daar geen JSON met een issuer uit, dan wijst de URL niet naar een hub -
+ * meestal naar de Next-frontend die ervoor staat, en die antwoordt gewoon met
+ * HTML. Vandaar dat je anders pas bij de eerste login "unexpected HTTP
+ * response status code" te zien krijgt.
+ */
+async function discover(base: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${base}/.well-known/openid-configuration`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { issuer?: unknown };
+    // De hub is baas over zijn eigen naam: de issuer uit de discovery moet
+    // exact in de tokens staan, dus die nemen we over en niet wat jij typte.
+    return typeof body.issuer === "string" ? body.issuer.replace(/\/$/, "") : base;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Controleert de opgegeven hub-URL en corrigeert hem waar het kan.
+ *
+ * Een hub-app draait zijn hub op {@link HUB_MOUNT}, dus http://localhost:9000
+ * is dan de frontend en http://localhost:9000/oidc de hub. Dat is de fout die
+ * je bijna altijd maakt bij een tweede app; daarom proberen we er zelf /oidc
+ * achter voor we het opgeven.
+ */
+async function verifyIssuer(input: string): Promise<string | null> {
+  // Plak je de discovery-URL zelf, dan halen we het staartje eraf.
+  const base = input
+    .trim()
+    .replace(/\/$/, "")
+    .replace(/\/\.well-known\/openid-configuration$/, "");
+
+  for (const kandidaat of [base, `${base}${HUB_MOUNT}`]) {
+    const issuer = await discover(kandidaat);
+    if (issuer) return issuer;
+  }
+  return null;
+}
+
 export async function askOidc(projectName: string): Promise<OidcChoice> {
   const mode = await p.select({
     message: "OIDC / SSO?",
@@ -171,24 +218,68 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
   }
 
   // ---- aansluiten op een bestaande server --------------------------------
-  const issuer = await p.text({
-    message: "URL van de bestaande OIDC-server?",
-    placeholder: `http://localhost:${OIDC_PORT}`,
-    defaultValue: `http://localhost:${OIDC_PORT}`,
-    validate: (value) => {
-      const v = (value ?? "").trim();
-      if (!v) return undefined;
-      try {
-        new URL(v);
-        return undefined;
-      } catch {
-        return "Geen geldige URL (bv. https://login.mijnbedrijf.be).";
+  // We vragen net zo lang tot de hub echt antwoordt. Een typfout hier merk je
+  // anders pas als je inlogt, en dan staat hij al in drie .env-bestanden.
+  let voorstel = `http://localhost:${OIDC_PORT}${HUB_MOUNT}`;
+  let issuer = "";
+
+  for (;;) {
+    const antwoord = await p.text({
+      message: "URL van de bestaande OIDC-server?",
+      placeholder: voorstel,
+      defaultValue: voorstel,
+      validate: (value) => {
+        const v = (value ?? "").trim();
+        if (!v) return undefined;
+        try {
+          new URL(v);
+          return undefined;
+        } catch {
+          return "Geen geldige URL (bv. https://login.mijnbedrijf.be).";
+        }
+      },
+    });
+    if (p.isCancel(antwoord)) {
+      p.cancel("Geannuleerd.");
+      process.exit(0);
+    }
+
+    const getypt = String(antwoord).trim().replace(/\/$/, "");
+    const spin = p.spinner();
+    spin.start("Hub controleren");
+    const gevonden = await verifyIssuer(getypt);
+    spin.stop(gevonden ? `Hub gevonden op ${gevonden}` : "Geen hub gevonden");
+
+    if (gevonden) {
+      if (gevonden !== getypt) {
+        p.log.info(
+          `De hub noemt zichzelf ${gevonden}. Die naam moet exact in de tokens staan,\n` +
+            "dus die gebruiken we - niet wat je typte.",
+        );
       }
-    },
-  });
-  if (p.isCancel(issuer)) {
-    p.cancel("Geannuleerd.");
-    process.exit(0);
+      issuer = gevonden;
+      break;
+    }
+
+    p.log.warn(
+      `Op ${getypt} staat geen OIDC-server: /.well-known/openid-configuration\n` +
+        "geeft geen geldige discovery terug. Draait de hub? En vergeet niet dat een\n" +
+        `hub-app zijn hub op ${HUB_MOUNT} hangt - de wortel is dan van de frontend.`,
+    );
+
+    const toch = await p.confirm({
+      message: "Toch deze URL gebruiken?",
+      initialValue: false,
+    });
+    if (p.isCancel(toch)) {
+      p.cancel("Geannuleerd.");
+      process.exit(0);
+    }
+    if (toch === true) {
+      issuer = getypt;
+      break;
+    }
+    voorstel = getypt.endsWith(HUB_MOUNT) ? getypt : `${getypt}${HUB_MOUNT}`;
   }
 
   const role = await p.select({
@@ -242,7 +333,7 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
 
   return {
     mode: "existing",
-    issuer: String(issuer).trim().replace(/\/$/, ""),
+    issuer,
     isAdminPanel: role === "admin",
     clientId,
     clientSecret: String(secret).trim() || crypto.randomBytes(24).toString("hex"),
@@ -884,6 +975,31 @@ function patchExpressEntry(target: string): void {
   );
 
   fs.writeFileSync(file, src, "utf8");
+}
+
+/**
+ * Hangt de auth-routes opnieuw in de backend.
+ *
+ * De databasevraag komt bewust laat - je ziet dan waar je "ja" tegen zegt -
+ * maar die stap zet src/index.ts (Express) en app.module.ts (Nest) opnieuw
+ * neer, inclusief het wegvallen van de bedrading die de OIDC-stap er net in
+ * had gezet. Het gevolg is een backend waar alle auth-bestanden staan en die
+ * toch 404 antwoordt op /auth/start. Vandaar deze herstelstap.
+ *
+ * Beide patchfuncties zijn idempotent, dus twee keer draaien kan geen kwaad.
+ */
+export function rewireBackendAuth(
+  choice: OidcChoice,
+  backend: Backend,
+  projectDir: string,
+): void {
+  if (choice.mode === "none" || backend === "none") return;
+
+  const target = path.join(projectDir, BACKEND_DIR);
+  if (!fs.existsSync(target)) return;
+
+  if (backend === "node") patchExpressEntry(target);
+  else patchNestModule(target);
 }
 
 /** Haakt de AuthModule aan in de NestJS-backend. */

@@ -163,7 +163,10 @@ router.get('/interaction/:uid', async (req, res, next) => {
         const brand = await brandingFor(String(details.params.client_id))
 
         if (details.prompt.name === 'login') {
-            screens.showLogin(req, res, next, { uid: details.uid, brand, step: 'idle' })
+            // Mag je hier een account aanmaken? Het inlogscherm moet dat weten,
+            // anders staat er een knop die daarna 403 geeft.
+            const mag = await allowsRegistration(String(details.params.client_id))
+            screens.showLogin(req, res, next, { uid: details.uid, brand, step: 'idle', mayRegister: mag })
             return
         }
 
@@ -196,7 +199,15 @@ router.post('/interaction/:uid/login', form, async (req, res, next) => {
         const { user, error } = await verify(String(req.body.email ?? ''), String(req.body.password ?? ''))
 
         if (!user) {
-            screens.showLogin(req, res, next, { uid: details.uid, brand, step: 'idle', error, email: String(req.body.email ?? '') })
+            const mag = await allowsRegistration(String(details.params.client_id))
+            screens.showLogin(req, res, next, {
+                uid: details.uid,
+                brand,
+                step: 'idle',
+                error,
+                email: String(req.body.email ?? ''),
+                mayRegister: mag
+            })
             return
         }
 

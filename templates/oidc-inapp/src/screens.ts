@@ -29,6 +29,13 @@ export interface ScreenContext {
     step?: 'idle' | 'mfa'
     error?: string
     email?: string
+    /**
+     * Mag je vanuit de app waar je vandaan komt een account aanmaken?
+     *
+     * Staat per client (allow_registration). De route is sowieso dicht als het
+     * niet mag; dit zorgt dat er dan ook geen knop staat die daarna 403 geeft.
+     */
+    mayRegister?: boolean
 }
 
 /** Niets te doen: Next draait als eigen proces ervoor. */
@@ -61,6 +68,9 @@ function show(req: Request, res: Response, _next: NextFunction, path: string, ct
     if (step && step !== 'idle') query.set('step', step)
     if (error) query.set('error', error)
     if (email) query.set('email', email)
+    // De pagina staat in een ander proces en kan de clients niet bevragen, dus
+    // reist de vlag mee in de URL.
+    if (ctx.mayRegister) query.set('reg', '1')
 
     res.redirect(303, query.size > 0 ? `${path}?${query.toString()}` : path)
 }

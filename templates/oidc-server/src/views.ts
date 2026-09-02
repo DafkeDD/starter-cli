@@ -42,7 +42,12 @@ function layout(brand: Branding, title: string, body: string): string {
 </html>`
 }
 
-export function loginPage(brand: Branding | undefined, uid: string, error?: string): string {
+export function loginPage(
+    brand: Branding | undefined,
+    uid: string,
+    error?: string,
+    mayRegister = false
+): string {
     const b = brand ?? FALLBACK
     return layout(
         b,
@@ -55,7 +60,11 @@ export function loginPage(brand: Branding | undefined, uid: string, error?: stri
       ${error ? `<div class="err">${error}</div>` : ''}
       <button type="submit">Inloggen</button>
     </form>
-    <p class="alt">Nog geen account? <a href="/interaction/${uid}/register">Registreren</a></p>`
+    ${
+        mayRegister
+            ? `<p class="alt">Nog geen account? <a href="/interaction/${uid}/register">Registreren</a></p>`
+            : ''
+    }`
     )
 }
 

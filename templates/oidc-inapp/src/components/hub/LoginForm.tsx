@@ -21,13 +21,21 @@ export function LoginForm({
     brand,
     step,
     error,
-    email
+    email,
+    mayRegister
 }: {
     uid: string
     brand: string
     step: 'idle' | 'mfa'
     error?: string
     email?: string
+    /**
+     * Mag je vanuit deze app een account aanmaken?
+     *
+     * Komt van de hub, die het per client weet. Alleen de hub zelf staat dit
+     * standaard aan; bij een app die het niet mag hoort er geen knop te staan.
+     */
+    mayRegister?: boolean
 }) {
     const [tab, setTab] = useState<'eid' | 'email'>('email')
 
@@ -89,27 +97,31 @@ export function LoginForm({
 
                     {tab === 'eid' ? <EidTab /> : <EmailTab action={post('login')} email={email} />}
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-                        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                        <span
-                            style={{
-                                fontSize: 12.5,
-                                color: 'var(--text-3)',
-                                fontWeight: 600,
-                                whiteSpace: 'nowrap'
-                            }}
-                        >
-                            Nog geen account?
-                        </span>
-                        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                    </div>
+                    {mayRegister && (
+                        <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                            <span
+                                style={{
+                                    fontSize: 12.5,
+                                    color: 'var(--text-3)',
+                                    fontWeight: 600,
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                Nog geen account?
+                            </span>
+                            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                        </div>
 
-                    {/* Een <a> mag geen <button> bevatten, dus dit is een link die
-                        de knopstijl leent in plaats van een Btn in een link. */}
-                    <a href={nieuw} className='btn btn-ghost btn-lg btn-block'>
-                        <Icon name='plus' size={16} />
-                        Account aanmaken
-                    </a>
+                        {/* Een <a> mag geen <button> bevatten, dus dit is een link die
+                            de knopstijl leent in plaats van een Btn in een link. */}
+                        <a href={nieuw} className='btn btn-ghost btn-lg btn-block'>
+                            <Icon name='plus' size={16} />
+                            Account aanmaken
+                        </a>
+                        </>
+                    )}
                 </div>
             )}
         </div>
