@@ -16,7 +16,8 @@ const BRAND = '{{BRAND_NAME}}'
 const NAV: NavItem[] = [{ key: 'home', name: 'Start', icon: 'dashboard', href: '/' }]
 
 export default async function AppShell({ children }: { children: React.ReactNode }) {
-{{USER_LOOKUP}}
+{{USER_LOOKUP}}{{LOGIN_GUARD}}
+
     return (
         <Shell
             brand={BRAND}
@@ -24,7 +25,6 @@ export default async function AppShell({ children }: { children: React.ReactNode
             nav={NAV}
             user={user}
             userSub={userSub}
-            loginUrl={loginUrl_}
             logoutUrl={logoutUrl_}
         >
             {children}

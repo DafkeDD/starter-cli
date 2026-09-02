@@ -30,18 +30,20 @@ export function Shell({
     nav,
     user,
     userSub,
-    loginUrl,
     logoutUrl,
     children
 }: {
     brand: string
     brandSub: string
     nav: NavItem[]
-    /** Naam van de ingelogde gebruiker, of null. */
+    /**
+     * Naam van de ingelogde gebruiker.
+     *
+     * Null kan alleen in een project zonder login; de schil zelf verschijnt
+     * pas na het aanmelden - zie AppShell.
+     */
     user: string | null
     userSub: string
-    /** Null als dit project geen OIDC heeft; dan staat er geen knop. */
-    loginUrl: string | null
     logoutUrl: string | null
     children: React.ReactNode
 }) {
@@ -143,7 +145,7 @@ export function Shell({
                         <ThemeToggle />
                         <span className='tb-divider' />
 
-                        {user ? (
+                        {user && (
                             <div className='tb-user-wrap' ref={userRef}>
                                 <button
                                     className={'tb-user' + (userMenu ? ' open' : '')}
@@ -170,13 +172,6 @@ export function Shell({
                                     </div>
                                 )}
                             </div>
-                        ) : (
-                            loginUrl && (
-                                <a href={loginUrl} className='btn btn-primary btn-sm'>
-                                    <Icon name='user' size={15} />
-                                    Aanmelden
-                                </a>
-                            )
                         )}
                     </div>
                 </header>

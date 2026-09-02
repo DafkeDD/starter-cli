@@ -66,15 +66,23 @@ export async function scaffoldAppShell(
       copyTemplate("app-shell", target, {
         BRAND_NAME: brand,
         BRAND_SUB: "Portaal",
-        USER_IMPORT: withAuth
-          ? "import { getUser, loginUrl, logoutUrl } from '@/lib/auth'"
+        USER_IMPORT: withAuth ? "import { getUser, logoutUrl } from '@/lib/auth'" : "",
+        // Zonder login valt er niets af te wachten: dan staat de schil er altijd.
+        LOGIN_GUARD: withAuth
+          ? [
+              "",
+              "    // Geen schil zolang je niet ingelogd bent. De sidebar en de topbar horen",
+              "    // bij de app; het inlogscherm hoort daar los van te staan.",
+              "    if (!user) {",
+              "        return <>{children}</>",
+              "    }",
+            ].join("\n")
           : "",
         USER_LOOKUP: withAuth
           ? [
               "    const me = await getUser()",
               "    const user = me ? (me.name ?? me.email ?? 'Ingelogd') : null",
               "    const userSub = me?.email ?? ''",
-              "    const loginUrl_ = loginUrl('/')",
               "    const logoutUrl_ = logoutUrl()",
               "",
             ].join("\n")
@@ -82,7 +90,6 @@ export async function scaffoldAppShell(
               "    // Dit project heeft geen login; de schil toont dus geen gebruiker.",
               "    const user = null",
               "    const userSub = ''",
-              "    const loginUrl_ = null",
               "    const logoutUrl_ = null",
               "",
             ].join("\n"),
