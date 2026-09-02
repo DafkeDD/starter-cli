@@ -261,6 +261,14 @@ async function main(): Promise<void> {
     targetFor(credentials, "oidc"),
     ports.db,
     ports.oidc,
+    hubApp ? APP_DIR : OIDC_DIR,
+    defaultName,
+    // Bij een hub-app draait alles op één poort, dus wijst de callback van de
+    // hub naar zichzelf. Anders naar de aparte backend.
+    hubApp
+      ? `http://localhost:${ports.oidc}/auth/callback`
+      : `http://localhost:${ports.backend}/auth/callback`,
+    hubApp ? `http://localhost:${ports.oidc}/` : `http://localhost:${ports.frontend}/`,
   );
 
   scaffoldDocker(

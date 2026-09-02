@@ -1077,10 +1077,16 @@ export async function scaffoldOidcDatabase(
   db: DbTarget,
   dbPort: number,
   oidcPort: number,
+  /** Waar de hub staat: ./oidc, of ./app bij een hub-app. */
+  dir: string = OIDC_DIR,
+  projectName = "Hub",
+  /** De callback-URL van de app van de hub zelf. */
+  ownRedirectUri = `http://localhost:${BACKEND_PORT}/auth/callback`,
+  ownPostLogoutUri = `http://localhost:${FRONTEND_PORT}/`,
 ): Promise<void> {
   if (choice.mode !== "new" || database === "none") return;
 
-  const target = path.join(projectDir, OIDC_DIR);
+  const target = path.join(projectDir, dir);
   p.log.step(`Opslag van de OIDC-hub naar ${databaseLabel(database)} ...`);
 
   await withProgress(
@@ -1094,7 +1100,17 @@ export async function scaffoldOidcDatabase(
       // Overschrijft adapter.ts en users.ts met de databaseversies en zet de
       // OIDC-migratie klaar. De demo-migratie van de backend hoort hier niet.
       fs.rmSync(path.join(target, "src", "db", "migrations", "001_init.ts"), { force: true });
-      copyTemplate("oidc-db", target, {});
+      // De databaseversie van clients.ts zet de eigen app in de tabel; die
+      // heeft dezelfde gegevens nodig als de statische variant.
+      copyTemplate("oidc-db", target, {
+        CLIENT_ID: choice.clientId,
+        CLIENT_SECRET: choice.clientSecret,
+        PROJECT_NAME: projectName,
+        ACCENT: "#0f9d58",
+        TAGLINE: "Centrale login",
+        OWN_REDIRECT_URI: ownRedirectUri,
+        OWN_POST_LOGOUT_URI: ownPostLogoutUri,
+      });
     },
     35000,
   );

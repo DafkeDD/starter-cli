@@ -7,7 +7,8 @@ import type { Schema } from '../schema.js'
  *                    interacties, ...). Een tabel voor alle soorten, met "type"
  *                    als onderscheid. Dat is de gebruikelijke opzet.
  *  - users         : de gebruikers. Registreren gebeurt alleen hier, op de hub.
- *  - clients       : de aangesloten applicaties.
+ *  - clients       : de aangesloten applicaties, met hun branding en of ze
+ *                    zelf accounts mogen aanmaken.
  */
 export async function up(s: Schema): Promise<void> {
     await s.createTable('oidc_payloads', t => {
@@ -53,6 +54,12 @@ export async function up(s: Schema): Promise<void> {
         // JSON-lijsten, als tekst. Zie de opmerking bij payload hierboven.
         t.text('redirect_uris')
         t.text('post_logout_redirect_uris').null()
+        // Hoe het inlogscherm eruitziet voor deze app.
+        t.string('accent', 20).null()
+        t.string('tagline', 160).null()
+        // Mag je vanuit deze app een account aanmaken? Alleen de hub-app staat
+        // hierop standaard aan; de rest stuurt je hooguit door.
+        t.bool('allow_registration').default(false)
         t.bool('enabled').default(true)
         t.timestamps()
     })

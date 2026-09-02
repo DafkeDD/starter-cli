@@ -2,6 +2,11 @@ import type { Adapter, AdapterPayload } from 'oidc-provider'
 import { connect } from './db/index.js'
 import { sql, id } from './db/sql.js'
 import { useDatabase as useDatabaseForUsers } from './users.js'
+import {
+    ensureOwnClient,
+    findClient,
+    useDatabase as useDatabaseForClients
+} from './clients.js'
 import type { Db } from './db/types.js'
 
 /**
@@ -82,6 +87,13 @@ export class StorageAdapter implements Adapter {
     }
 
     async find(key: string): Promise<AdapterPayload | undefined> {
+        // Clients staan in hun eigen tabel, niet tussen de payloads. Zo kan je
+        // een app aansluiten met een gewone INSERT, en ziet het beheerscherm
+        // dezelfde rijen als oidc-provider.
+        if (this.type === 'Client') {
+            return (await findClient(key)) as AdapterPayload | undefined
+        }
+
         const row = await database().one<PayloadRow>(
             sql`select ${id('payload')}, ${id('expires_at')}, ${id('consumed_at')}
                 from ${id('oidc_payloads')}
@@ -140,6 +152,21 @@ export class StorageAdapter implements Adapter {
 export async function initStorage(): Promise<void> {
     db = await connect()
     useDatabaseForUsers(db)
+    useDatabaseForClients(db)
+
+    // De app van de hub zelf moet altijd bestaan; zonder die rij kan je nergens
+    // inloggen, ook niet op de hub. Mislukt het (verse database, tabellen nog
+    // niet aangemaakt), dan is dat geen reden om niet te starten - anders kan je
+    // de migratie niet eens draaien.
+    try {
+        await ensureOwnClient()
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn(
+            `Kon de eigen client niet klaarzetten: ${message}\n` +
+                'Bestaan de tabellen al? Draai:  npm run db:migrate'
+        )
+    }
 
     // Opruimen mag het opstarten niet tegenhouden. Bij een verse database
     // bestaan de tabellen nog niet, en als de hub daarop crasht kan je de

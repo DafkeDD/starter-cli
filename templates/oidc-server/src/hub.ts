@@ -1,7 +1,7 @@
 import express, { type Router } from 'express'
 import Provider from 'oidc-provider'
 import type { Configuration } from 'oidc-provider'
-import { BRANDING, CLIENTS } from './clients.js'
+import { CLIENTS, allClients, allowsRegistration, brandingFor } from './clients.js'
 import { all as allUsers, findById, register, setBlocked, verify } from './users.js'
 import * as screens from './screens.js'
 import { StorageAdapter, initStorage } from './adapter.js'
@@ -136,11 +136,30 @@ async function autoGrant(details: Awaited<ReturnType<typeof provider.interaction
     return grant.save()
 }
 
+/**
+ * Mag je vanuit deze app een account aanmaken?
+ *
+ * De vlag staat per client. Staat hij uit, dan is de route niet alleen zonder
+ * knop maar ook echt dicht - een verborgen knop is geen slot.
+ */
+async function mayRegister(
+    details: Awaited<ReturnType<typeof provider.interactionDetails>>,
+    res: express.Response
+): Promise<boolean> {
+    if (await allowsRegistration(String(details.params.client_id))) return true
+
+    res.status(403).type('text/plain').send(
+        'Registreren kan niet vanuit deze app.\n' +
+            'Maak je account aan bij de centrale app en meld je hier daarna aan.'
+    )
+    return false
+}
+
 /** Toont het juiste scherm, of rondt de consent stil af. */
 router.get('/interaction/:uid', async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
-        const brand = BRANDING[String(details.params.client_id)]
+        const brand = await brandingFor(String(details.params.client_id))
 
         if (details.prompt.name === 'login') {
             screens.showLogin(req, res, next, { uid: details.uid, brand, step: 'idle' })
@@ -158,9 +177,11 @@ router.get('/interaction/:uid', async (req, res, next) => {
 router.get('/interaction/:uid/register', async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
+        if (!(await mayRegister(details, res))) return
+
         screens.showRegister(req, res, next, {
             uid: details.uid,
-            brand: BRANDING[String(details.params.client_id)]
+            brand: await brandingFor(String(details.params.client_id))
         })
     } catch (err) {
         next(err)
@@ -170,7 +191,7 @@ router.get('/interaction/:uid/register', async (req, res, next) => {
 router.post('/interaction/:uid/login', form, async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
-        const brand = BRANDING[String(details.params.client_id)]
+        const brand = await brandingFor(String(details.params.client_id))
         const { user, error } = await verify(String(req.body.email ?? ''), String(req.body.password ?? ''))
 
         if (!user) {
@@ -192,7 +213,9 @@ router.post('/interaction/:uid/login', form, async (req, res, next) => {
 router.post('/interaction/:uid/register', form, async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
-        const brand = BRANDING[String(details.params.client_id)]
+        if (!(await mayRegister(details, res))) return
+
+        const brand = await brandingFor(String(details.params.client_id))
 
         try {
             const user = await register(
@@ -271,11 +294,7 @@ router.get('/admin/api/clients', async (req, res, next) => {
     try {
         if (!(await requireAdmin(req, res))) return
         res.json({
-            clients: CLIENTS.map(c => ({
-                client_id: c.client_id,
-                redirect_uris: c.redirect_uris,
-                branding: BRANDING[String(c.client_id)]?.name ?? '-'
-            }))
+            clients: await allClients()
         })
     } catch (err) {
         next(err)
