@@ -73,6 +73,8 @@ async function main(): Promise<void> {
    */
   const hubApp = oidc.mode === "new" && hub.mode === "inapp";
   const appDir = hubApp ? APP_DIR : FRONTEND_DIR;
+  /** Waar de hub staat. Bij een hub-app is dat ./app en niet ./oidc. */
+  const hubDir = hubApp ? APP_DIR : OIDC_DIR;
   // De databasevragen komen bewust later, als alles geinstalleerd is.
 
   // ---- Poorten ------------------------------------------------------------
@@ -104,6 +106,20 @@ async function main(): Promise<void> {
   // ---- Controles ----------------------------------------------------------
   if (hubApp) {
     assertEmpty(path.join(projectDir, APP_DIR), APP_DIR);
+
+    // Resten van een eerdere run met andere antwoorden. Ze worden niet
+    // gebruikt, maar ze staan er wel - en dan draai je zo een commando in de
+    // verkeerde map en vraag je je af waarom er niets klopt.
+    const oud = [FRONTEND_DIR, BACKEND_DIR, OIDC_DIR].filter((dir) =>
+      fs.existsSync(path.join(projectDir, dir)),
+    );
+    if (oud.length > 0) {
+      p.log.warn(
+        `Deze mappen staan er nog van een eerdere run: ${oud.map((d) => `./${d}`).join(", ")}.\n` +
+          `Een hub-app zet alles in ./${APP_DIR}; die andere doen niet meer mee.\n` +
+          "Gooi ze weg als je van nul wil testen.",
+      );
+    }
   } else {
     if (frontend === "nextjs") {
       assertEmpty(path.join(projectDir, FRONTEND_DIR), FRONTEND_DIR);
@@ -112,7 +128,7 @@ async function main(): Promise<void> {
       assertEmpty(path.join(projectDir, BACKEND_DIR), BACKEND_DIR);
     }
     if (oidc.mode === "new") {
-      assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
+  assertEmpty(path.join(projectDir, OIDC_DIR), OIDC_DIR);
     }
   }
 
@@ -140,7 +156,7 @@ async function main(): Promise<void> {
       )}${pc.dim(customUi ? "  gedeelde layout en componenten" : "  geen shadcn/ui of andere library")}`,
       `${pc.dim("OIDC    ")}  ${pc.cyan(
         oidc.mode === "new"
-          ? `nieuwe server${pc.dim(`  -> ./${OIDC_DIR} (poort ${OIDC_PORT})`)}`
+          ? `nieuwe server${pc.dim(`  -> ./${hubDir} (poort ${ports.oidc})`)}`
           : oidc.mode === "existing"
             ? `${oidc.issuer}${pc.dim(oidc.isAdminPanel ? "  (dit is het beheerpaneel)" : "")}`
             : "geen",
@@ -194,7 +210,7 @@ async function main(): Promise<void> {
     defaultName,
     PACKAGE_MANAGER,
     hub,
-    hubApp ? APP_DIR : OIDC_DIR,
+    hubDir,
     {
       oidc: ports.oidc,
       backend: ports.backend,
@@ -265,7 +281,7 @@ async function main(): Promise<void> {
     targetFor(credentials, "oidc"),
     ports.db,
     ports.oidc,
-    hubApp ? APP_DIR : OIDC_DIR,
+    hubDir,
     defaultName,
     // Bij een hub-app draait alles op één poort, dus wijst de callback van de
     // hub naar zichzelf. Anders naar de aparte backend.
@@ -304,7 +320,7 @@ async function main(): Promise<void> {
     await createLocalDatabases({
       // pg staat in de app die we net geinstalleerd hebben; de CLI zelf sleept
       // geen databasedriver mee.
-      moduleDir: path.join(projectDir, backendDb === "local" ? BACKEND_DIR : OIDC_DIR),
+      moduleDir: path.join(projectDir, backendDb === "local" ? BACKEND_DIR : hubDir),
       host: "127.0.0.1",
       port: 5432,
       user: credentials.user,
@@ -317,7 +333,7 @@ async function main(): Promise<void> {
   const gestart = await offerToStart(
     [
       { dir: BACKEND_DIR, database: backendDb },
-      { dir: OIDC_DIR, database: oidcDb },
+      { dir: hubDir, database: oidcDb },
     ],
     projectDir,
     PACKAGE_MANAGER,
@@ -328,12 +344,11 @@ async function main(): Promise<void> {
   // ---- Volgende stappen ---------------------------------------------------
   // Commando + bijbehorende URL; de URL's worden onder elkaar uitgelijnd.
   const steps: Array<[command: string, url: string]> = [];
-  if (hubApp) {
-    steps.push([
-      `cd ${APP_DIR} && ${PACKAGE_MANAGER} run dev`,
-      `http://localhost:${ports.oidc}  (hub op /oidc)`,
-    ]);
-  } else if (frontend === "nextjs") {
+
+  // De databasestappen komen eerst. Start je een hub-app voordat de tabellen
+  // bestaan, dan komt hij wel op maar meldt hij 'relation "clients" does not
+  // exist' en kan je nergens inloggen.
+  if (!hubApp && frontend === "nextjs") {
     steps.push([
       `cd ${FRONTEND_DIR} && ${PACKAGE_MANAGER} run dev`,
       `http://localhost:${ports.frontend}`,
@@ -352,7 +367,9 @@ async function main(): Promise<void> {
     ]);
   }
 
-  if (backend === "node") {
+  if (hubApp) {
+    // Geen aparte backend: die zit in de app zelf.
+  } else if (backend === "node") {
     steps.push([
       `cd ${BACKEND_DIR} && ${PACKAGE_MANAGER} run dev`,
       `http://localhost:${ports.backend}/health`,
@@ -366,17 +383,25 @@ async function main(): Promise<void> {
 
   if (oidcDb === "local" && !gestart) {
     steps.push([
-      `cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:migrate`,
+      `cd ${hubDir} && ${PACKAGE_MANAGER} run db:migrate`,
       `database ${credentials.oidcDb}`,
     ]);
   } else if (oidcDb === "docker" && !gestart) {
-    steps.push([`cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run db:up`, "database van de hub"]);
+    steps.push([`cd ${hubDir} && ${PACKAGE_MANAGER} run db:up`, "database van de hub"]);
   }
 
   if (oidc.mode === "new" && !hubApp) {
     steps.push([
       `cd ${OIDC_DIR} && ${PACKAGE_MANAGER} run dev`,
       `http://localhost:${ports.oidc}/.well-known/openid-configuration`,
+    ]);
+  }
+
+  // De hub-app als laatste: één commando dat Next en de hub samen start.
+  if (hubApp) {
+    steps.push([
+      `cd ${APP_DIR} && ${PACKAGE_MANAGER} run dev`,
+      `http://localhost:${ports.oidc}  (hub op /oidc)`,
     ]);
   }
 
