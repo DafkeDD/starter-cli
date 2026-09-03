@@ -89,6 +89,13 @@ export async function findClient(clientId: string): Promise<ClientMetadata | und
  * niet in en kan je nergens inloggen — ook niet op de hub.
  */
 export async function ensureOwnClient(): Promise<void> {
+    // Alleen als hij er nog niet staat. Met een upsert zou elke herstart de
+    // waarden van het scaffold-moment terugzetten: pas je in productie de
+    // callback-URL aan of zet je registratie uit, dan stond dat er na de
+    // eerstvolgende deploy weer overheen - en faalde elke login met
+    // redirect_uri_mismatch, zonder dat iets je waarschuwde.
+    if (await clientExists('{{CLIENT_ID}}')) return
+
     await upsertClient({
         clientId: '{{CLIENT_ID}}',
         name: '{{PROJECT_NAME}}',
@@ -100,6 +107,14 @@ export async function ensureOwnClient(): Promise<void> {
         // De hub is de plek waar je een account aanmaakt.
         allowRegistration: true
     })
+}
+
+/** Staat deze client al in de tabel? */
+export async function clientExists(clientId: string): Promise<boolean> {
+    const row = await database().one<{ client_id: string }>(
+        sql`select ${id('client_id')} from ${id('clients')} where ${id('client_id')} = ${clientId}`
+    )
+    return row !== null
 }
 
 export interface UpsertClient {

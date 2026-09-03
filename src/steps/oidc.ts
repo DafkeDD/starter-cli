@@ -206,6 +206,22 @@ async function tokenWerkt(issuer: string, token: string): Promise<400 | 401 | 50
   }
 }
 
+/**
+ * Krijgt dit project het beheerscherm?
+ *
+ * Dat scherm is niets bijzonders: een gewone client-app met een rolcheck erbij,
+ * die met de admin-API van de hub praat namens de ingelogde beheerder. Het mag
+ * dus overal staan - ook in de hub zelf, en dat is meestal waar je hem wil.
+ */
+async function askAdminPanel(vraag: string, standaard: boolean): Promise<boolean> {
+  const antwoord = await p.confirm({ message: vraag, initialValue: standaard });
+  if (p.isCancel(antwoord)) {
+    p.cancel("Geannuleerd.");
+    process.exit(0);
+  }
+  return antwoord === true;
+}
+
 export async function askOidc(projectName: string): Promise<OidcChoice> {
   const mode = await p.select({
     message: "OIDC / SSO?",
@@ -236,10 +252,18 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
   }
 
   if (mode === "new") {
+    // De hub weet als enige wie zijn gebruikers zijn, dus daar hoort het
+    // beheerscherm eigenlijk thuis. Vandaar standaard ja - bij een app die
+    // aansluit staat hij juist standaard uit.
+    const beheer = await askAdminPanel(
+      "Beheerscherm meeleveren? (gebruikers en aangesloten apps)",
+      true,
+    );
+
     return {
       mode,
       issuer: `http://localhost:${OIDC_PORT}`,
-      isAdminPanel: false,
+      isAdminPanel: beheer,
       clientId,
       clientSecret: crypto.randomBytes(24).toString("hex"),
     };
@@ -310,22 +334,10 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
     voorstel = getypt.endsWith(HUB_MOUNT) ? getypt : `${getypt}${HUB_MOUNT}`;
   }
 
-  const role = await p.select({
-    message: "Is dit project het beheerpaneel van die server?",
-    initialValue: "app" as "app" | "admin",
-    options: [
-      { value: "app" as const, label: "Nee, gewone app", hint: "login + beschermde routes" },
-      {
-        value: "admin" as const,
-        label: "Ja, dit is het beheerpaneel",
-        hint: "krijgt /admin met gebruikersbeheer",
-      },
-    ],
-  });
-  if (p.isCancel(role)) {
-    p.cancel("Geannuleerd.");
-    process.exit(0);
-  }
+  const beheer = await askAdminPanel(
+    "Is dit project het beheerscherm van die hub?",
+    false,
+  );
 
   const secret = await p.text({
     message: "client_secret van deze app? (leeg = zelf een verzinnen)",
@@ -415,7 +427,7 @@ export async function askOidc(projectName: string): Promise<OidcChoice> {
   return {
     mode: "existing",
     issuer,
-    isAdminPanel: role === "admin",
+    isAdminPanel: beheer,
     clientId,
     clientSecret: String(secret).trim() || crypto.randomBytes(24).toString("hex"),
     registrationToken: token,
@@ -522,8 +534,22 @@ export async function scaffoldOidcServer(
           "# door als je een volgend project aansluit. Leeg = aanmelden staat uit.",
           `HUB_REGISTRATION_TOKEN=${crypto.randomBytes(24).toString("hex")}`,
           "",
+          "# Ondertekent de cookies van de hub zelf. Zonder deze sleutel start hij",
+          "# niet: een sleutel die in de code staat is geen sleutel.",
+          `OIDC_COOKIE_KEY=${crypto.randomBytes(32).toString("hex")}`,
+          "",
+          "# Welke apps de beheer-API mogen aanspreken. Alleen de rol van de",
+          "# gebruiker controleren is niet genoeg: elke aangesloten app krijgt een",
+          "# token voor de ingelogde beheerder. Komma-gescheiden lijst.",
+          `ADMIN_CLIENT_IDS=${choice.clientId}`,
+          "",
         ].join("\n"),
       );
+
+      // Een verse clone heeft geen .env - die staat in .gitignore. Zonder een
+      // voorbeeld weet je niet welke sleutels er nodig zijn, en start de hub
+      // met een foutmelding over de eerste die ontbreekt.
+      writeHubEnvExample(target, mount, ports.oidc, choice.clientId);
 
       update("Prettier installeren en formatteren");
       await setupPrettier(pm, target, { tailwind: false });
@@ -565,6 +591,7 @@ async function scaffoldInAppHub(
   if (hub.server === "nestjs") {
     copyTemplate("oidc-inapp-nest", target, { MOUNT: mount });
     fs.rmSync(path.join(target, "src", "index.ts"), { force: true });
+    enableDecorators(target);
 
     await addDeps(pm, target, [
       "@nestjs/common@latest",
@@ -608,6 +635,33 @@ function preserving(target: string, names: string[], fn: () => void): void {
  * expressies nog niet - die gebruikt de adapter van de hub. `npm run typecheck`
  * struikelt daar anders over, terwijl de code op runtime prima werkt.
  */
+/**
+ * Zet de decoratorvlaggen in de tsconfig die je editor en `npm run typecheck`
+ * gebruiken.
+ *
+ * Alleen tsconfig.build.json had ze, en die gebruikt uitsluitend `nest build`.
+ * Gevolg: bouwen lukte, maar `npm run typecheck` viel over elke @Injectable en
+ * je editor kleurde elk Nest-bestand rood. Twee waarheden over hetzelfde
+ * project is precies wat je niet wil.
+ */
+function enableDecorators(target: string): void {
+  const file = path.join(target, "tsconfig.json");
+  if (!fs.existsSync(file)) return;
+
+  const raw = fs.readFileSync(file, "utf8");
+  if (raw.includes("experimentalDecorators")) return;
+
+  // Tekstueel en niet via JSON.parse: de tsconfig van create-next-app bevat
+  // commentaar, en dat zou een parse-en-schrijf ronde weggooien.
+  const vervangen = raw.replace(
+    /("compilerOptions"\s*:\s*\{)/,
+    '$1\n        "experimentalDecorators": true,\n        "emitDecoratorMetadata": true,',
+  );
+  if (vervangen === raw) return;
+
+  fs.writeFileSync(file, vervangen, "utf8");
+}
+
 function raiseTsTarget(target: string): void {
   const file = path.join(target, "tsconfig.json");
   if (!fs.existsSync(file)) return;
@@ -651,7 +705,11 @@ function patchNextConfig(target: string, mount: string, intern: number): void {
                 { source: '${mount}/:path*', destination: \`\${HUB_URL}${mount}/:path*\` },
                 // Inloggen op deze app zelf: /auth/start, /auth/callback,
                 // /auth/me en /auth/logout draaien op dezelfde server als de hub.
-                { source: '/auth/:path*', destination: \`\${HUB_URL}/auth/:path*\` }
+                { source: '/auth/:path*', destination: \`\${HUB_URL}/auth/:path*\` },
+                // Je eigen API - en het beheerscherm, dat /api/admin/... aanroept.
+                // Fallback en niet beforeFiles: een route handler in app/api/
+                // wint zo gewoon, en pas wat Next niet kent gaat naar de server.
+                { source: '/api/:path*', destination: \`\${HUB_URL}/api/:path*\` }
             ]
         }
     },
@@ -878,6 +936,9 @@ function patchHubAppEntry(target: string, hub: HubChoice): void {
     "    keys: [process.env.SESSION_SECRET ?? 'verander-mij'],",
     "    httpOnly: true,",
     "    sameSite: 'lax',",
+      "    // Achter HTTPS hoort deze cookie nooit over http mee te gaan.",
+      "    // cookie-session zet dit niet vanzelf.",
+      "    secure: process.env.NODE_ENV === 'production',",
     "    maxAge: 7 * 24 * 60 * 60 * 1000",
     "})",
     "",
@@ -1081,6 +1142,53 @@ function manualRegisterCommand(url: string, token: string, body: object): string
   );
 }
 
+/**
+ * Het voorbeeldbestand naast de .env van de hub.
+ *
+ * Zonder waarden, wel met alle sleutels en de uitleg erbij: dit gaat mee de
+ * repo in, de .env niet.
+ */
+function writeHubEnvExample(
+  target: string,
+  mount: string,
+  oidcPort: number,
+  clientId: string,
+): void {
+  const lines = [
+    "# Poort van de hub. In Docker zet compose deze variabele.",
+    "PORT=",
+    "",
+    "# Moet exact de URL zijn die ook de browser gebruikt - anders klopt de",
+    "# iss in het id_token niet en faalt de validatie bij de clients.",
+    `OIDC_ISSUER=http://localhost:${oidcPort}${mount}`,
+    "",
+    "# Waarmee starter-cli een nieuwe app bij deze hub aanmeldt.",
+    "# Leeg = aanmelden staat uit. Tonen met: npm run hub:token",
+    "HUB_REGISTRATION_TOKEN=",
+    "",
+    "# Ondertekent de cookies van de hub. Zonder deze sleutel start hij niet.",
+    "#   node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    "OIDC_COOKIE_KEY=",
+    "",
+    "# Welke apps de beheer-API mogen aanspreken. Komma-gescheiden.",
+    `ADMIN_CLIENT_IDS=${clientId}`,
+    "",
+    "# Inloggen op deze app zelf. Dezelfde hub, maar dan als client.",
+    `OIDC_CLIENT_ID=${clientId}`,
+    "OIDC_CLIENT_SECRET=",
+    `OIDC_REDIRECT_URI=http://localhost:${oidcPort}/auth/callback`,
+    `FRONTEND_URL=http://localhost:${oidcPort}`,
+    "",
+    "# Ondertekent de sessiecookie van deze app. Verzin een eigen waarde.",
+    "SESSION_SECRET=",
+    "",
+  ].join("\n");
+
+  // Aanvullen en niet overschrijven: de frontend- en databasestappen schrijven
+  // in hetzelfde voorbeeldbestand, en de volgorde ligt niet vast.
+  mergeEnv(path.join(target, ".env.example"), lines);
+}
+
 /** Schrijft .env en .env.example met de OIDC-gegevens. */
 function writeEnv(
   target: string,
@@ -1140,6 +1248,9 @@ function patchExpressEntry(target: string): void {
       "        keys: [process.env.SESSION_SECRET ?? 'verander-mij'],",
       "        httpOnly: true,",
       "        sameSite: 'lax',",
+      "        // Achter HTTPS hoort deze cookie nooit over http mee te gaan.",
+      "        // cookie-session zet dit niet vanzelf.",
+      "        secure: process.env.NODE_ENV === 'production',",
       "        maxAge: 7 * 24 * 60 * 60 * 1000",
       "    })",
       ")",
@@ -1220,6 +1331,9 @@ function patchNestModule(target: string): void {
       "            keys: [process.env.SESSION_SECRET ?? 'verander-mij'],",
       "            httpOnly: true,",
       "            sameSite: 'lax',",
+      "            // Achter HTTPS hoort deze cookie nooit over http mee te gaan.",
+      "            // cookie-session zet dit niet vanzelf.",
+      "            secure: process.env.NODE_ENV === 'production',",
       "            maxAge: 7 * 24 * 60 * 60 * 1000",
       "        })",
       "    )",
@@ -1515,7 +1629,9 @@ function writeFrontendEnv(target: string, backendPort: number): void {
   ].join("\n");
 
   fs.writeFileSync(file, lines, "utf8");
-  fs.writeFileSync(path.join(target, ".env.example"), lines, "utf8");
+  // Aanvullen: bij een hub-app staat hier al het voorbeeld van de hub, en dat
+  // zou een writeFileSync weggooien.
+  mergeEnv(path.join(target, ".env.example"), lines);
 }
 
 /** Voegt de OIDC-teksten toe aan messages/<locale>.json, zonder de rest te raken. */
@@ -1639,6 +1755,15 @@ export async function scaffoldOidcDatabase(
   /** De callback-URL van de app van de hub zelf. */
   ownRedirectUri = `http://localhost:${BACKEND_PORT}/auth/callback`,
   ownPostLogoutUri = `http://localhost:${FRONTEND_PORT}/`,
+  /**
+   * Draait er NestJS onder deze hub?
+   *
+   * Zo ja, dan krijgt hij ook de injecteerbare datalaag: DbModule en DbService.
+   * Zonder dat stond er wel een src/db/, maar moest je voor je eigen tabellen
+   * een tweede pool naast die van de hub openen - precies de reden waarom je
+   * Nest koos, en dan geen bruikbare datalaag.
+   */
+  nestHub = false,
 ): Promise<void> {
   if (choice.mode !== "new" || database === "none") return;
 
@@ -1650,7 +1775,7 @@ export async function scaffoldOidcDatabase(
     async (update) => {
       // Eigen database ("oidc"), zelfde rol als de backend: de hub deelt geen
       // tabellen met je app, wel het account waarmee je erin kijkt.
-      await scaffoldDatabase(database, target, "none", pm, update, db, dbPort, oidcPort);
+      await scaffoldDatabase(database, target, nestHub ? "nestjs" : "none", pm, update, db, dbPort, oidcPort);
 
       update("OIDC-opslag naar de database verhuizen");
       // Overschrijft adapter.ts en users.ts met de databaseversies en zet de

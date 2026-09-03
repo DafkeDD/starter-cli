@@ -2,6 +2,7 @@ import type { Adapter, AdapterPayload } from 'oidc-provider'
 import { connect } from './db/index.js'
 import { sql, id } from './db/sql.js'
 import { useDatabase as useDatabaseForUsers } from './users.js'
+import { useDatabase as useDatabaseForKeys } from './keys.js'
 import {
     ensureOwnClient,
     findClient,
@@ -153,6 +154,7 @@ export async function initStorage(): Promise<void> {
     db = await connect()
     useDatabaseForUsers(db)
     useDatabaseForClients(db)
+    useDatabaseForKeys(db)
 
     // De app van de hub zelf moet altijd bestaan; zonder die rij kan je nergens
     // inloggen, ook niet op de hub. Mislukt het (verse database, tabellen nog
@@ -195,6 +197,24 @@ export async function initStorage(): Promise<void> {
  * Ruimt verlopen rijen op. Zonder dit groeit oidc_payloads eindeloos: verlopen
  * tokens worden bij het lezen wel genegeerd, maar niet verwijderd.
  */
+/**
+ * Gooit alles weg wat aan deze gebruiker hangt: sessies, grants en tokens.
+ *
+ * Nodig bij het blokkeren van een account. findAccount weigert hem daarna wel,
+ * maar zonder deze opruiming blijft zijn SSO-sessie bestaan en zou hij bij elke
+ * app een inlogscherm zien in plaats van er gewoon uit te liggen.
+ *
+ * accountId staat in de payload, niet in een eigen kolom. Dat is prima: dit
+ * draait alleen als een beheerder op de knop drukt, niet in een hete route.
+ */
+export async function revokeForAccount(accountId: string): Promise<number> {
+    const result = await database().execute(
+        sql`delete from ${id('oidc_payloads')}
+            where (${id('payload')}::jsonb ->> 'accountId') = ${accountId}`
+    )
+    return result.rowsAffected
+}
+
 export async function pruneExpired(): Promise<number> {
     const result = await database().execute(
         sql`delete from ${id('oidc_payloads')} where ${id('expires_at')} is not null and ${id('expires_at')} < ${new Date()}`

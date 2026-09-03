@@ -30,7 +30,23 @@ async function cookieHeader(): Promise<string> {
         .join('; ')
 }
 
-export async function getUser(): Promise<User | null> {
+/**
+ * Wie is er ingelogd?
+ *
+ * Drie uitkomsten, en dat verschil is belangrijk:
+ *
+ *   een User   ingelogd
+ *   null       niet ingelogd - de backend zei 401
+ *   'onbekend' de backend antwoordde niet
+ *
+ * Dat laatste apart houden, want anders laat elke hik van je backend iedereen
+ * uitgelogd lijken: de schil verdwijnt, /admin stuurt je naar het inlogscherm,
+ * en de gebruiker denkt dat hij eruit gegooid is terwijl hij gewoon moet
+ * wachten.
+ */
+export type UserOfFout = User | null | 'onbekend'
+
+export async function fetchUser(): Promise<UserOfFout> {
     const cookie = await cookieHeader()
     if (!cookie) return null
 
@@ -38,15 +54,24 @@ export async function getUser(): Promise<User | null> {
         const res = await fetch(`${BACKEND_URL}/auth/me`, {
             headers: { cookie },
             // Nooit cachen: dit hangt van de bezoeker af.
-            cache: 'no-store'
+            cache: 'no-store',
+            // Zonder deze grens laat een backend die blijft hangen ook elke
+            // server-render van je pagina hangen.
+            signal: AbortSignal.timeout(5000)
         })
-        if (!res.ok) return null
+        if (res.status === 401) return null
+        if (!res.ok) return 'onbekend'
         const data = (await res.json()) as { user: User | null }
         return data.user
     } catch {
-        // Backend niet bereikbaar -> behandel als niet ingelogd.
-        return null
+        return 'onbekend'
     }
+}
+
+/** Zoals fetchUser, maar "onbekend" telt als niet ingelogd. */
+export async function getUser(): Promise<User | null> {
+    const uitslag = await fetchUser()
+    return uitslag === 'onbekend' ? null : uitslag
 }
 
 /** De URL waar je op klikt om in te loggen. */
@@ -61,9 +86,15 @@ export function logoutUrl(): string {
 
 /** Praat namens de bezoeker met de backend (bv. de beheer-endpoints). */
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
+    // Via Headers en niet met een spread: init.headers mag ook een Headers-
+    // object of een array van paren zijn, en die overleven een spread niet - je
+    // content-type verdween dan stilletjes en de backend antwoordde 415.
+    const headers = new Headers(init?.headers)
+    headers.set('cookie', await cookieHeader())
+
     return fetch(`${BACKEND_URL}${path}`, {
         ...init,
-        headers: { ...(init?.headers ?? {}), cookie: await cookieHeader() },
+        headers,
         cache: 'no-store'
     })
 }

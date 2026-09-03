@@ -2,7 +2,7 @@ import { Controller, Get, Req, Res } from '@nestjs/common'
 import type { Response } from 'express'
 import { AuthService } from './auth.service.js'
 import { FRONTEND_URL } from './oidc.js'
-import type { SessionRequest, SessionUser } from './oidc.js'
+import { HERCONTROLE_MS, tokenLeeftNog, type SessionRequest, type SessionUser } from './oidc.js'
 
 /**
  * De OIDC-routes van deze app.
@@ -34,16 +34,36 @@ export class AuthController {
         }
     }
 
-    /** Wie ben ik? De frontend gebruikt dit om te weten of je ingelogd bent. */
+    /**
+     * Wie ben ik? De frontend gebruikt dit om te weten of je ingelogd bent.
+     *
+     * Elke vijf minuten vragen we de hub of dit token nog leeft. Blokkeer je
+     * iemand daar, dan ligt hij hier binnen dat kwartiertje ook echt buiten in
+     * plaats van de volle zeven dagen van de sessiecookie uit te zitten.
+     */
     @Get('me')
-    me(@Req() req: SessionRequest, @Res() res: Response): void {
+    async me(@Req() req: SessionRequest, @Res() res: Response): Promise<void> {
         const user = req.session?.user as SessionUser | undefined
         if (!user) {
             res.status(401).json({ user: null })
             return
         }
-        // Het access token blijft server-side — dat gaat nooit naar de browser.
-        const { accessToken: _ignored, ...safe } = user
+
+        if (Date.now() - (user.checkedAt ?? 0) > HERCONTROLE_MS) {
+            const leeft = await tokenLeeftNog(user.accessToken)
+            if (leeft === false) {
+                req.session = null
+                res.status(401).json({ user: null })
+                return
+            }
+            // null = de hub antwoordde niet. Dan laten we de sessie staan; een
+            // hikkende hub hoort niet iedereen uit te loggen.
+            if (leeft === true) req.session!.user = { ...user, checkedAt: Date.now() }
+        }
+
+        // Het access token blijft server-side - dat gaat nooit naar de browser.
+        // checkedAt is onze eigen boekhouding en hoort er ook niet in.
+        const { accessToken: _token, checkedAt: _gecontroleerd, ...safe } = user
         res.json({ user: safe })
     }
 

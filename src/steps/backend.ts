@@ -221,7 +221,14 @@ function patchNestPort(mainPath: string, port: number): void {
 
   src = src.replace(
     /await\s+app\.listen\([^)]*\)/,
-    `await app.listen(Number(process.env.PORT ?? ${port}))`,
+    // enableShutdownHooks erbij: zonder dat roept Nest onModuleDestroy nooit
+    // aan, en blijft bij elke herstart van `nest start --watch` de databasepool
+    // openstaan. Na een stuk of tien bewerkingen loop je dan tegen
+    // "too many clients already".
+    "// Nest ruimt providers pas op als dit aanstaat - anders lekt bij elke\n" +
+      "// herstart de databasepool.\n" +
+      "app.enableShutdownHooks()\n\n" +
+      `await app.listen(Number(process.env.PORT ?? ${port}))`,
   );
 
   if (!src.includes("./env")) {

@@ -55,6 +55,11 @@ export const CLIENTS: ClientMetadata[] = [
 /** Niets te doen: de client staat hierboven al. */
 export async function ensureOwnClient(): Promise<void> {}
 
+/** Staat deze client al in de lijst? */
+export async function clientExists(clientId: string): Promise<boolean> {
+    return CLIENTS.some(c => c.client_id === clientId)
+}
+
 export async function brandingFor(clientId: string): Promise<Branding | undefined> {
     return BRANDING[clientId]
 }

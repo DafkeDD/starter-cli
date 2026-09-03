@@ -8,9 +8,9 @@ function layout(brand: Branding, title: string, body: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} — ${brand.name}</title>
+<title>${e(title)} — ${e(brand.name)}</title>
 <style>
-  :root { --accent: ${brand.accent}; }
+  :root { --accent: ${kleur(brand.accent)}; }
   * { box-sizing: border-box; }
   body { margin:0; min-height:100vh; display:grid; place-items:center;
          font-family: system-ui, sans-serif; background:#f5f6f8; color:#111; }
@@ -33,13 +33,43 @@ function layout(brand: Branding, title: string, body: string): string {
 </head>
 <body>
   <div class="card">
-    <div class="brand"><span class="dot"></span><h1>${title}</h1></div>
-    <p class="tagline">${brand.name} — ${brand.tagline}</p>
+    <div class="brand"><span class="dot"></span><h1>${e(title)}</h1></div>
+    <p class="tagline">${e(brand.name)} — ${e(brand.tagline)}</p>
     ${body}
     <p class="muted">Beveiligd door de centrale identity-hub</p>
   </div>
 </body>
 </html>`
+}
+
+/**
+ * Maakt tekst veilig om in HTML te zetten.
+ *
+ * Nodig omdat deze schermen met sjabloonstrings gebouwd worden en niet met
+ * React: alles wat je erin plakt is meteen markup. De naam en de tagline van een
+ * client komen uit de clients-tabel, en dat is precies het veld dat het
+ * aanmeld-endpoint schrijft. Een clientnaam met een script erin zou dus draaien
+ * op de origin van de hub - waar de sessiecookies staan.
+ */
+/**
+ * Een kleur die veilig in een style-blok mag.
+ *
+ * Escapen helpt hier niet: binnen <style> geldt HTML-escaping niet, dus een
+ * accentkleur uit de database zou het stijlblok kunnen verlaten. Daarom geen
+ * filter maar een vorm-controle - en anders de standaardkleur.
+ */
+function kleur(waarde: unknown): string {
+    const v = String(waarde ?? '')
+    return /^#[0-9a-f]{3,8}$/i.test(v) ? v : '#0f9d58'
+}
+
+function e(waarde: unknown): string {
+    return String(waarde ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;')
 }
 
 export function loginPage(
@@ -52,17 +82,17 @@ export function loginPage(
     return layout(
         b,
         'Inloggen',
-        `<form method="post" action="/interaction/${uid}/login">
+        `<form method="post" action="/interaction/${encodeURIComponent(uid)}/login">
       <label for="email">E-mailadres</label>
       <input id="email" name="email" type="email" autocomplete="username" required autofocus>
       <label for="password">Wachtwoord</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
-      ${error ? `<div class="err">${error}</div>` : ''}
+      ${error ? `<div class="err">${e(error)}</div>` : ''}
       <button type="submit">Inloggen</button>
     </form>
     ${
         mayRegister
-            ? `<p class="alt">Nog geen account? <a href="/interaction/${uid}/register">Registreren</a></p>`
+            ? `<p class="alt">Nog geen account? <a href="/interaction/${encodeURIComponent(uid)}/register">Registreren</a></p>`
             : ''
     }`
     )
@@ -73,16 +103,16 @@ export function registerPage(brand: Branding | undefined, uid: string, error?: s
     return layout(
         b,
         'Registreren',
-        `<form method="post" action="/interaction/${uid}/register">
+        `<form method="post" action="/interaction/${encodeURIComponent(uid)}/register">
       <label for="name">Naam</label>
       <input id="name" name="name" required autofocus>
       <label for="email">E-mailadres</label>
       <input id="email" name="email" type="email" autocomplete="username" required>
       <label for="password">Wachtwoord</label>
       <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
-      ${error ? `<div class="err">${error}</div>` : ''}
+      ${error ? `<div class="err">${e(error)}</div>` : ''}
       <button type="submit">Account aanmaken</button>
     </form>
-    <p class="alt">Al een account? <a href="/interaction/${uid}">Inloggen</a></p>`
+    <p class="alt">Al een account? <a href="/interaction/${encodeURIComponent(uid)}">Inloggen</a></p>`
     )
 }

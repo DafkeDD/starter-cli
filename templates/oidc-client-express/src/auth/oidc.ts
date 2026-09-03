@@ -46,4 +46,41 @@ export interface SessionUser {
     email?: string
     role?: string
     accessToken: string
+    /**
+     * Wanneer we voor het laatst bij de hub navroegen of dit account nog mag.
+     *
+     * Zonder dit blijft iemand die je op de hub blokkeert hier gewoon ingelogd
+     * tot zijn sessiecookie verloopt - zeven dagen. Zie hercontroleer() in
+     * routes.ts.
+     */
+    checkedAt?: number
+}
+
+/** Hoe lang we het antwoord van de hub vertrouwen voor we het opnieuw vragen. */
+export const HERCONTROLE_MS = 5 * 60 * 1000
+
+/**
+ * Leeft dit access token nog bij de hub?
+ *
+ * De userinfo-endpoint weigert een token zodra de sessie of het account weg is,
+ * dus dit is meteen ook een blokkade-controle. Faalt het netwerk, dan geven we
+ * null terug: dan laten we de gebruiker met rust in plaats van hem uit te
+ * loggen omdat de hub even hikte.
+ */
+export async function tokenLeeftNog(accessToken: string): Promise<boolean | null> {
+    try {
+        const config = await getOidcConfig()
+        const url = config.serverMetadata().userinfo_endpoint
+        if (!url) return null
+
+        const response = await fetch(url, {
+            headers: { authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(5000)
+        })
+        if (response.ok) return true
+        if (response.status === 401 || response.status === 403) return false
+        return null
+    } catch {
+        return null
+    }
 }

@@ -103,6 +103,30 @@ export class StorageAdapter implements Adapter {
  * dan vervangt die versie dit bestand en zet initStorage de verbinding op. Zo
  * hoeft index.ts niet te weten waar de gegevens staan.
  */
+/**
+ * Gooit alles weg wat aan deze gebruiker hangt: sessies, grants en tokens.
+ *
+ * Nodig bij het blokkeren van een account. findAccount weigert hem daarna wel,
+ * maar zonder deze opruiming blijft zijn SSO-sessie bestaan.
+ *
+ * Zelfde naam en zelfde signatuur als in de databasevariant, zodat hub.ts niet
+ * hoeft te weten waar de gegevens staan.
+ */
+export async function revokeForAccount(accountId: string): Promise<number> {
+    let verwijderd = 0
+
+    for (const naam of Object.keys(store)) {
+        for (const [sleutel, entry] of Object.entries(store[naam])) {
+            if ((entry.payload as { accountId?: string }).accountId !== accountId) continue
+            delete store[naam][sleutel]
+            verwijderd++
+        }
+    }
+
+    if (verwijderd > 0) persist()
+    return verwijderd
+}
+
 export async function initStorage(): Promise<void> {
     // Niets te doen: storage.ts schrijft rechtstreeks naar een JSON-bestand.
 }

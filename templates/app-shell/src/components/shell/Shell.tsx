@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Icon } from '@/components/design/icons'
 import { Avatar } from '@/components/design/primitives'
 import ThemeToggle from '@/components/theme/ThemeToggle'
@@ -48,11 +49,23 @@ export function Shell({
     children: React.ReactNode
 }) {
     const pathname = usePathname()
-    const router = useRouter()
     const [drawer, setDrawer] = useState(false)
     const [collapsed, setCollapsed] = useState(false)
     const [userMenu, setUserMenu] = useState(false)
     const userRef = useRef<HTMLDivElement>(null)
+    const userButtonRef = useRef<HTMLButtonElement>(null)
+    const menuButtonRef = useRef<HTMLButtonElement>(null)
+
+    // Alleen op een smal scherm is de sidebar een uitschuifmenu. Breder staat
+    // hij gewoon naast je pagina en hoort hij niet uit de tabvolgorde.
+    const [smal, setSmal] = useState(false)
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 860px)')
+        const volg = () => setSmal(mq.matches)
+        volg()
+        mq.addEventListener('change', volg)
+        return () => mq.removeEventListener('change', volg)
+    }, [])
 
     // De ingeklapte sidebar onthouden. Alleen een voorkeur, dus localStorage
     // volstaat - er hoeft niets van naar de server.
@@ -81,22 +94,42 @@ export function Shell({
         return () => document.removeEventListener('mousedown', onClick)
     }, [userMenu])
 
-    const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
+    // Escape sluit wat er openstaat, en de focus gaat terug naar de knop die het
+    // opende. Zonder dat laatste staat de focus na het sluiten nergens en moet
+    // je met de tab-toets opnieuw de hele pagina door.
+    useEffect(() => {
+        if (!userMenu && !drawer) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            if (userMenu) {
+                setUserMenu(false)
+                userButtonRef.current?.focus()
+            } else {
+                setDrawer(false)
+                menuButtonRef.current?.focus()
+            }
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+    }, [userMenu, drawer])
 
-    const go = (href: string) => {
-        router.push(href)
-        setDrawer(false)
-        setUserMenu(false)
-    }
+    const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
 
     return (
         <div className={'app-shell' + (collapsed ? ' rail-collapsed' : '')}>
-            <div
+            <button
+                type='button'
                 className={'sidebar-backdrop' + (drawer ? ' show' : '')}
                 onClick={() => setDrawer(false)}
+                tabIndex={-1}
+                aria-label='Menu sluiten'
             />
 
-            <aside className={'sidebar' + (drawer ? ' open' : '')}>
+            {/* inert haalt de dichtgeschoven sidebar uit de tabvolgorde. Hij
+                staat er op een telefoon nog wel, alleen 100% naar links; zonder
+                dit tab je dus door een menu dat je niet ziet. Alleen op smalle
+                schermen: op een breed scherm staat hij gewoon open. */}
+            <aside className={'sidebar' + (drawer ? ' open' : '')} inert={smal && !drawer}>
                 <div className='rail-head'>
                     <div className='brand-mark'>
                         <Icon name='shield' />
@@ -105,33 +138,50 @@ export function Shell({
                         <div className='rail-brand-name'>{brand}</div>
                         <div className='rail-brand-sub'>{brandSub}</div>
                     </div>
-                    <button className='drawer-close' onClick={() => setDrawer(false)} aria-label='Sluiten'>
+                    <button type='button' className='drawer-close' onClick={() => setDrawer(false)} aria-label='Menu sluiten'>
                         <Icon name='x' size={19} />
                     </button>
                 </div>
 
                 <nav className='rail-nav'>
+                    {/* Echte links en geen knoppen: zo werken middenklik,
+                        "openen in nieuw tabblad" en de statusbalk van de browser
+                        gewoon. aria-current vertelt een schermlezer welke pagina
+                        je bekijkt - de CSS-klasse alleen zegt daar niets over. */}
                     {nav.map(item => (
-                        <button
+                        <Link
                             key={item.key}
+                            href={item.href}
                             className={'rail-item' + (isActive(item.href) ? ' active' : '')}
-                            onClick={() => go(item.href)}
                             title={item.name}
+                            aria-current={isActive(item.href) ? 'page' : undefined}
+                            onClick={() => {
+                                setDrawer(false)
+                                setUserMenu(false)
+                            }}
                         >
                             <Icon name={item.icon} size={20} />
                             <span className='rail-label'>{item.name}</span>
                             {item.badge && <span className='rail-badge'>{item.badge}</span>}
-                        </button>
+                        </Link>
                     ))}
                 </nav>
             </aside>
 
             <div className='main'>
                 <header className='topbar'>
-                    <button className='nav-toggle' onClick={() => setDrawer(true)} aria-label='Menu'>
+                    <button
+                        type='button'
+                        ref={menuButtonRef}
+                        className='nav-toggle'
+                        onClick={() => setDrawer(true)}
+                        aria-label='Menu openen'
+                        aria-expanded={drawer}
+                    >
                         <Icon name='menu' size={20} />
                     </button>
                     <button
+                        type='button'
                         className='rail-toggle'
                         onClick={() => setCollapsed(c => !c)}
                         aria-label={collapsed ? 'Sidebar uitklappen' : 'Sidebar inklappen'}
@@ -148,8 +198,12 @@ export function Shell({
                         {user && (
                             <div className='tb-user-wrap' ref={userRef}>
                                 <button
+                                    type='button'
+                                    ref={userButtonRef}
                                     className={'tb-user' + (userMenu ? ' open' : '')}
                                     onClick={() => setUserMenu(o => !o)}
+                                    aria-expanded={userMenu}
+                                    aria-haspopup='menu'
                                 >
                                     <div className='tb-user-text'>
                                         <div className='tb-user-name'>{user}</div>

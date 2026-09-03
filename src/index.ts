@@ -314,6 +314,8 @@ async function main(): Promise<void> {
       ? `http://localhost:${ports.oidc}/auth/callback`
       : `http://localhost:${ports.backend}/auth/callback`,
     hubApp ? `http://localhost:${ports.oidc}/` : `http://localhost:${ports.frontend}/`,
+    // Onder een Nest-hub hoort de datalaag ook injecteerbaar te zijn.
+    hubApp && hub.server === "nestjs",
   );
 
   scaffoldDocker(

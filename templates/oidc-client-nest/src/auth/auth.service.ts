@@ -2,6 +2,26 @@ import { Injectable } from '@nestjs/common'
 import { FRONTEND_URL, getClient, getOidcConfig, REDIRECT_URI } from './oidc.js'
 import type { SessionRequest, SessionUser } from './oidc.js'
 
+/**
+ * Waar mag de gebruiker na het inloggen heen?
+ *
+ * Alleen een pad binnen deze app. Zonder deze controle is /auth/start een open
+ * redirect: `?returnTo=@evil.com` maakt van `${FRONTEND_URL}${returnTo}` de URL
+ * `http://jouw-app@evil.com`, en dat eerste stuk leest de browser als
+ * gebruikersnaam. Het slachtoffer logt dan echt bij jou in en landt daarna bij
+ * de aanvaller - een phishingketen die begint op jouw eigen domein.
+ *
+ * Vandaar: één schuine streep aan het begin en geen tweede, en geen
+ * backslashes (die vertalen sommige browsers naar een schuine streep).
+ */
+function veiligPad(waarde: unknown): string {
+    if (typeof waarde !== 'string') return '/'
+    if (!waarde.startsWith('/')) return '/'
+    if (waarde.startsWith('//') || waarde.startsWith('/\\')) return '/'
+    if (waarde.includes('\\')) return '/'
+    return waarde
+}
+
 @Injectable()
 export class AuthService {
     /** Bouwt de URL naar de hub en zet PKCE + state in de sessie. */
@@ -15,7 +35,7 @@ export class AuthService {
 
         req.session!.codeVerifier = codeVerifier
         req.session!.state = state
-        req.session!.returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '/'
+        req.session!.returnTo = veiligPad(req.query.returnTo)
 
         return client.buildAuthorizationUrl(config, {
             redirect_uri: REDIRECT_URI,
@@ -51,10 +71,11 @@ export class AuthService {
             name: profile.name,
             email: profile.email,
             role: profile.role,
-            accessToken: tokens.access_token
+            accessToken: tokens.access_token,
+            checkedAt: Date.now()
         }
 
-        const returnTo = req.session!.returnTo ?? '/'
+        const returnTo = veiligPad(req.session!.returnTo)
         req.session!.user = user
         req.session!.codeVerifier = undefined
         req.session!.state = undefined

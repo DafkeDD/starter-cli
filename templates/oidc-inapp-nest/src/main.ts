@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core'
+import express from 'express'
 import type { NestExpressApplication } from '@nestjs/platform-express'
 import { AppModule } from './app.module.js'
 import { ISSUER, MOUNT, PORT, router } from './hub.js'
@@ -25,6 +26,18 @@ const server = app.getHttpAdapter().getInstance()
 
 // Express slikt geen leeg mountpad, vandaar de val terug op de wortel.
 server.use(MOUNT || '/', router)
+
+// bodyParser staat uit voor de hele app omdat oidc-provider de rauwe body wil.
+// Je eigen routes willen hem juist wel: zonder dit is @Body() altijd leeg en
+// zoek je je suf. Dus zetten we hem terug, maar alleen buiten het pad van de
+// hub.
+server.use('/api', express.json())
+server.use('/api', express.urlencoded({ extended: false }))
+
+// Nest roept onModuleDestroy alleen aan als dit aanstaat. Zonder dit blijft bij
+// elke herstart van `nest start --watch` de databasepool openstaan, en loop je
+// na een stuk of tien bewerkingen tegen "too many clients already".
+app.enableShutdownHooks()
 
 await app.listen(PORT)
 console.log(`OIDC-hub luistert op ${ISSUER}`)

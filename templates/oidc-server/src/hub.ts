@@ -2,10 +2,10 @@ import express, { type Router } from 'express'
 import { timingSafeEqual } from 'node:crypto'
 import Provider from 'oidc-provider'
 import type { Configuration } from 'oidc-provider'
-import { CLIENTS, allClients, allowsRegistration, brandingFor, registerClient } from './clients.js'
+import { CLIENTS, allClients, allowsRegistration, brandingFor, clientExists, registerClient } from './clients.js'
 import { all as allUsers, findById, register, setBlocked, verify } from './users.js'
 import * as screens from './screens.js'
-import { StorageAdapter, initStorage } from './adapter.js'
+import { StorageAdapter, initStorage, revokeForAccount } from './adapter.js'
 import { loadOrCreateJwks } from './keys.js'
 
 /**
@@ -33,6 +33,24 @@ export const PORT = Number(process.env.PORT ?? {{OIDC_PORT}})
  * http://oidc.localhost:9000: die naam lost in je browser op naar 127.0.0.1 en
  * binnen het compose-netwerk naar de hub-container.
  */
+/**
+ * De sleutel waarmee de cookies van de hub ondertekend worden.
+ *
+ * Zonder waarde stopt de hub meteen in plaats van stilletjes met een
+ * standaardsleutel te draaien - dat is precies het soort fout dat je pas merkt
+ * als iemand hem misbruikt.
+ */
+const COOKIE_KEY = process.env.OIDC_COOKIE_KEY ?? ''
+if (!COOKIE_KEY) {
+    console.error(
+        'OIDC_COOKIE_KEY ontbreekt in .env.\n' +
+            'Zonder die sleutel zijn de cookies van de hub niet te vertrouwen.\n' +
+            'Zet er een willekeurige waarde in, bijvoorbeeld:\n' +
+            '  node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    )
+    process.exit(1)
+}
+
 export const ISSUER = process.env.OIDC_ISSUER ?? `http://localhost:${PORT}{{MOUNT}}`
 
 const configuration: Configuration = {
@@ -73,6 +91,13 @@ const configuration: Configuration = {
     findAccount: async (_ctx, id) => {
         const user = await findById(id)
         if (!user) return undefined
+
+        // Ook hier controleren en niet alleen in verify(). Die draait namelijk
+        // enkel op het wachtwoordformulier: wie al een SSO-sessie heeft komt
+        // langs autoGrant en zou anders veertien dagen lang verse tokens
+        // blijven krijgen nadat je hem geblokkeerd hebt.
+        if (user.blocked) return undefined
+
         return {
             accountId: id,
             claims: async () => ({
@@ -85,7 +110,11 @@ const configuration: Configuration = {
         }
     },
     cookies: {
-        keys: ['proefopstelling-geheim-niet-voor-productie'],
+        // Ondertekent de sessie- en interaction-cookies van de hub. Uit .env,
+        // want een sleutel die in de repo staat is geen sleutel: wie hem kent
+        // kan een cookie vervalsen en zich voordoen als een ingelogde
+        // gebruiker. starter-cli genereert er een bij het scaffolden.
+        keys: [COOKIE_KEY],
         // Op de wortel en niet op het pad van de interaction.
         //
         // Standaard hangt oidc-provider deze cookie aan {{MOUNT}}/interaction/
@@ -156,6 +185,65 @@ async function mayRegister(
     return false
 }
 
+/**
+ * Een eenvoudige rem, per IP en per sleutel.
+ *
+ * Waarom dit er hoort: scrypt kost met opzet ~50-100 ms rekentijd per poging.
+ * Zonder rem kan iemand niet alleen ongelimiteerd wachtwoorden raden, maar met
+ * honderd gelijktijdige verzoeken ook de event loop platleggen - er is niet
+ * eens een account voor nodig. En het aanmeld-endpoint is anders een gratis
+ * orakel om registratietokens te raden: 400 betekent goed, 401 fout.
+ *
+ * Bewust geen dependency: een Map met tijdstempels doet wat het moet doen voor
+ * één proces. Draai je meerdere exemplaren, vervang dit dan door een teller in
+ * Redis of de database - dit is de plek waar dat hoort.
+ */
+const pogingen = new Map<string, number[]>()
+
+function rem(max: number, perMs: number) {
+    return (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+        const ip = req.ip ?? 'onbekend'
+        // Ook op e-mailadres, anders wisselt een aanvaller gewoon van IP en
+        // blijft hij hetzelfde account bestoken.
+        const wie = typeof req.body?.email === 'string' ? String(req.body.email).toLowerCase() : ''
+        const nu = Date.now()
+
+        for (const sleutel of [`ip:${ip}:${req.path}`, wie ? `wie:${wie}` : '']) {
+            if (!sleutel) continue
+            const recent = (pogingen.get(sleutel) ?? []).filter(t => nu - t < perMs)
+            if (recent.length >= max) {
+                res.setHeader('retry-after', Math.ceil((perMs - (nu - recent[0])) / 1000))
+                res.status(429).json({ error: 'Te veel pogingen. Probeer het straks opnieuw.' })
+                return
+            }
+            recent.push(nu)
+            pogingen.set(sleutel, recent)
+        }
+
+        next()
+    }
+}
+
+// De Map laten groeien tot het geheugen vol is, is zelf ook een aanvalsvector.
+setInterval(
+    () => {
+        const grens = Date.now() - 60 * 60 * 1000
+        for (const [sleutel, tijden] of pogingen) {
+            const over = tijden.filter(t => t > grens)
+            if (over.length === 0) pogingen.delete(sleutel)
+            else pogingen.set(sleutel, over)
+        }
+    },
+    10 * 60 * 1000
+).unref()
+
+/** Tien inlogpogingen per vijf minuten. */
+const remInloggen = rem(10, 5 * 60 * 1000)
+/** Vijf nieuwe accounts per uur. */
+const remRegistreren = rem(5, 60 * 60 * 1000)
+/** Tien aanmeldpogingen per uur; genoeg om te scaffolden, te weinig om te raden. */
+const remAanmelden = rem(10, 60 * 60 * 1000)
+
 /** Toont het juiste scherm, of rondt de consent stil af. */
 router.get('/interaction/:uid', async (req, res, next) => {
     try {
@@ -192,7 +280,7 @@ router.get('/interaction/:uid/register', async (req, res, next) => {
     }
 })
 
-router.post('/interaction/:uid/login', form, async (req, res, next) => {
+router.post('/interaction/:uid/login', form, remInloggen, async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
         const brand = await brandingFor(String(details.params.client_id))
@@ -222,7 +310,7 @@ router.post('/interaction/:uid/login', form, async (req, res, next) => {
     }
 })
 
-router.post('/interaction/:uid/register', form, async (req, res, next) => {
+router.post('/interaction/:uid/register', form, remRegistreren, async (req, res, next) => {
     try {
         const details = await provider.interactionDetails(req, res)
         if (!(await mayRegister(details, res))) return
@@ -258,6 +346,25 @@ router.post('/interaction/:uid/register', form, async (req, res, next) => {
  * De hub is zelf de uitgever, dus hij kan het token rechtstreeks opzoeken.
  * ------------------------------------------------------------------------ */
 
+/**
+ * Welke apps mogen de beheer-API aanspreken?
+ *
+ * Alleen de rol controleren is niet genoeg. Elke aangesloten app krijgt via
+ * autoGrant stilzwijgend een token voor de ingelogde gebruiker; logt een
+ * beheerder één keer in op app B, dan kan de backend van app B daarmee al je
+ * gebruikers lezen en accounts blokkeren. Vandaar ook een lijst van clients die
+ * dit mogen - standaard alleen de app van de hub zelf.
+ *
+ * Sluit je later een apart beheerpaneel aan, zet dan zijn client_id hierbij in
+ * de .env van de hub en herstart hem.
+ */
+const ADMIN_CLIENTS = new Set(
+    (process.env.ADMIN_CLIENT_IDS ?? '{{CLIENT_ID}}')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean)
+)
+
 /** Haalt de ingelogde admin uit het bearer token, of stuurt 401/403. */
 async function requireAdmin(req: express.Request, res: express.Response) {
     const header = req.headers.authorization ?? ''
@@ -270,6 +377,15 @@ async function requireAdmin(req: express.Request, res: express.Response) {
     const accessToken = await provider.AccessToken.find(token)
     if (!accessToken || !accessToken.accountId) {
         res.status(401).json({ error: 'Ongeldig of verlopen token' })
+        return undefined
+    }
+
+    if (!ADMIN_CLIENTS.has(String(accessToken.clientId))) {
+        res.status(403).json({
+            error:
+                `De app ${String(accessToken.clientId)} mag de beheer-API niet gebruiken. ` +
+                'Zet zijn client_id bij ADMIN_CLIENT_IDS in de .env van de hub en herstart hem.'
+        })
         return undefined
     }
 
@@ -303,6 +419,31 @@ router.get('/admin/api/users', async (req, res, next) => {
 })
 
 /**
+ * Is dit een redirect-URI waar we een gebruiker heen mogen sturen?
+ *
+ * Alleen http en https, en geen fragment - de rest van de schema's (javascript:,
+ * data:) zijn manieren om code te laten draaien op het moment dat de hub je
+ * terugstuurt. http staat toe omdat je lokaal ontwikkelt; buiten localhost
+ * hoort het https te zijn.
+ */
+function geldigeRedirect(waarde: unknown): waarde is string {
+    if (typeof waarde !== 'string' || waarde.length > 2000) return false
+
+    let url: URL
+    try {
+        url = new URL(waarde)
+    } catch {
+        return false
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    if (url.hash) return false
+
+    const lokaal = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.endsWith('.localhost')
+    return url.protocol === 'https:' || lokaal
+}
+
+/**
  * Een app aanmelden bij de hub.
  *
  * Hier komt `starter-cli` langs als je een nieuw project op deze hub aansluit.
@@ -312,7 +453,7 @@ router.get('/admin/api/users', async (req, res, next) => {
  *
  * Laat je HUB_REGISTRATION_TOKEN leeg, dan staat dit eindpunt uit.
  */
-router.post('/admin/api/clients', express.json(), async (req, res, next) => {
+router.post('/admin/api/clients', express.json(), remAanmelden, async (req, res, next) => {
     try {
         const expected = process.env.HUB_REGISTRATION_TOKEN ?? ''
         if (!expected) {
@@ -343,6 +484,32 @@ router.post('/admin/api/clients', express.json(), async (req, res, next) => {
 
         if (!body.client_id || !Array.isArray(body.redirect_uris) || body.redirect_uris.length === 0) {
             res.status(400).json({ error: 'client_id en minstens een redirect_uri zijn verplicht.' })
+            return
+        }
+
+        if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(body.client_id)) {
+            res.status(400).json({ error: 'client_id mag alleen kleine letters, cijfers en streepjes bevatten.' })
+            return
+        }
+
+        // Alleen toevoegen, nooit overschrijven. Het registratietoken gaat per
+        // ontwerp rond bij iedereen die een app aansluit; met een upsert zou
+        // een van hen de redirect_uris van een draaiende app kunnen vervangen
+        // door zijn eigen adres en zo de autorisatiecodes van je gebruikers
+        // opvangen. PKCE helpt daar niet tegen: hij kiest de verifier zelf.
+        if (await clientExists(body.client_id)) {
+            res.status(409).json({
+                error: `De client ${body.client_id} bestaat al. Wijzigen doe je in de database of via het beheerscherm.`
+            })
+            return
+        }
+
+        const uris = [...body.redirect_uris, ...(body.post_logout_redirect_uris ?? [])]
+        const fout = uris.find(uri => !geldigeRedirect(uri))
+        if (fout !== undefined) {
+            res.status(400).json({
+                error: `${String(fout)} is geen bruikbare redirect-URI: alleen http op localhost of https, en zonder #fragment.`
+            })
             return
         }
 
@@ -381,7 +548,13 @@ router.post('/admin/api/users/:id/blocked', form, async (req, res, next) => {
             res.status(400).json({ error: 'Je kan jezelf niet blokkeren.' })
             return
         }
-        await setBlocked(req.params.id, String(req.body.blocked) === 'true')
+        const blokkeren = String(req.body.blocked) === 'true'
+        await setBlocked(req.params.id, blokkeren)
+
+        // Blokkeren moet nu ingaan, niet pas als zijn sessie verloopt. Zonder
+        // dit houdt hij tot veertien dagen een geldige SSO-sessie.
+        if (blokkeren) await revokeForAccount(req.params.id)
+
         res.json({ ok: true })
     } catch (err) {
         next(err)
